@@ -1,14 +1,12 @@
 #include <iostream>
 #include <vector>
-
 #include <string>
 #include <fstream>
 #include <sstream>
-
 #include <thread>
 #include <chrono>
-
 #include <filesystem>
+#include <cmath>
 
 #include "imgui.h"
 #include "backends/imgui_impl_glfw.h"
@@ -32,9 +30,6 @@ Adafruit_Mahony orientation;
 // Altitude and veritcal velocity state filter, used to sense when to deploy
 // the parachute
 KalmanFilter altitude;
-
-float g_cal = 9.80665;
-
 
 
 std::filesystem::path get_current_dir() {
@@ -153,12 +148,12 @@ int main(int argc, char** argv){
 
 
     orientation.begin(100);
-    altitude.setG(g_cal);
+    altitude.setG(9.80665);
 
     std::vector<float> altitude_filtered_data;
+    std::vector<float> delta_data;
+    float P0 = 0.0f;
 
-    float ground_pressure = 0.0f;
-    bool first_baro_reading = true;
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
         auto current_time = std::chrono::steady_clock::now();
@@ -171,85 +166,109 @@ int main(int argc, char** argv){
                 while (std::chrono::duration_cast<std::chrono::milliseconds>(current_time - last_time).count() >= 10) {
                     last_time += std::chrono::milliseconds(10);
 
-                    if (std::getline(file_imu, line_imu) && std::getline(file_baro, line_baro) && std::getline(file_filtered, line_filtered)) {
-                        
-                        std::stringstream ss_imu(line_imu);
-                        std::stringstream ss_baro(line_baro);
-                        std::stringstream ss_filtered(line_filtered);
-                        std::stringstream ss_out;
+                if (std::getline(file_imu, line_imu) && std::getline(file_baro, line_baro) && std::getline(file_filtered, line_filtered)) {
+                    
+                    std::stringstream ss_imu(line_imu);
+                    std::stringstream ss_baro(line_baro);
+                    std::stringstream ss_filtered(line_filtered);
+                    std::stringstream ss_out;
 
-                        std::string value_imu, value_baro, value_filtered;
-                        
-                        std::vector<float> imu_values(6, 0.0f); // Ax, Ay, Az, Gx, Gy, Gz
-                        for (int i = 0; std::getline(ss_imu, value_imu, ',' ); i++) {
-                            if (i == 0) {current_ts = std::stof(value_imu); continue;} // Extract ts
-                            if (i == 1) continue;
-                            
-                            imu_values[i-2] = std::stof(value_imu);
+                    std::string value_imu, value_baro, value_filtered;
+                    
+                    std::vector<float> imu_values(6, 0.0f); // Ax, Ay, Az, Gx, Gy, Gz
+                    for (int i = 0; std::getline(ss_imu, value_imu, ',' ); i++) {
+                        if (i == 0) {
+                            current_ts = std::stof(value_imu); // Extract ts
+                            ss_out << value_imu << ",";
+                        } else if (i == 1) {
+                            continue; // skip ID
+                        } else {
+                            if (i - 2 < imu_values.size()) {
+                                imu_values[i-2] = std::stof(value_imu);
+                            }
                             ss_out << value_imu << ",";
                         }
-
-                        float baro_pressure = 0.0f;
-                        for (int i = 0; std::getline(ss_baro, value_baro, ',' ); i++) {
-                            if (i == 3){
-                                baro_pressure = std::stof(value_baro);
-                                ss_out << value_baro << ",";
-                            } 
-                        }
-
-                        if (baro_pressure != 0.0f && first_baro_reading) {
-                            ground_pressure = baro_pressure;
-                            first_baro_reading = false;
-                        }
-
-                        float alt_filtered = 0.0f, acc_filtered = 0.0f;
-                        for (int i = 0; std::getline(ss_filtered, value_filtered, ',' ); i++) {
-                            if (i == 1) alt_filtered = std::stof(value_filtered); // Extract filteredAltitudeAGL
-                            if (i == 2) acc_filtered = std::stof(value_filtered); // Extract filteredAcceleration
-
-                            if (i != 0) 
-                                ss_out << "," << value_filtered << (i == 1 ? "," : "");
-                        }
-
-                        ss_out << '\n';
-                        std::string out_str = ss_out.str();
-                        
-                        std::cout << out_str << std::flush;
-                        if (serial_fd != -1) {
-                            write(serial_fd, out_str.c_str(), out_str.length());
-                        }
-
-                        ts_data.push_back(current_ts);
-                        alt_data.push_back(alt_filtered);
-                        acc_data.push_back(acc_filtered);
-
-
-                        orientation.updateIMU(
-                            imu_values[3] / g_cal,
-                            imu_values[4] / g_cal,
-                            imu_values[5] / g_cal,
-                            imu_values[0] / g_cal,
-                            imu_values[1] / g_cal,
-                            imu_values[2] / g_cal
-                        );
-
-                        float attitude_rad = acos(cos(orientation.getPitchRadians())*cos(orientation.getRollRadians()));
-                        altitude.predict(
-                            imu_values[2],
-                            attitude_rad,
-                            false 
-                        );
-
-
-                        float baro_altitude = compute_altitude(baro_pressure, ground_pressure);
-                        altitude.update(baro_altitude);
-
-                        // altitude.getState()[0];
-                        // altitude.getState()[1];
-                        altitude_filtered_data.push_back(altitude.getState()[0]);
-
                     }
+
+                    float baro_pressure = 0.0f;
+                    float baro_temp = 0.0f;
+                    for (int i = 0; std::getline(ss_baro, value_baro, ',' ); i++) {
+                        if (i == 2) {
+                            baro_temp = std::stof(value_baro);
+                        }
+                        if (i == 3){
+                            baro_pressure = std::stof(value_baro);
+                            ss_out << value_baro << ",";
+                        } 
+                    }
+
+                    float alt_filtered = 0.0f, acc_filtered = 0.0f;
+                    for (int i = 0; std::getline(ss_filtered, value_filtered, ',' ); i++) {
+                        if (i == 1) alt_filtered = std::stof(value_filtered); // Extract filteredAltitudeAGL
+                        if (i == 2) acc_filtered = std::stof(value_filtered); // Extract filteredAcceleration
+
+                        if (i != 0) 
+                            ss_out << "," << value_filtered << (i == 1 ? "," : "");
+                    }
+
+                    ss_out << '\n';
+                    std::string out_str = ss_out.str();
+                    
+                    std::cout << out_str << std::flush;
+                    if (serial_fd != -1) {
+                        write(serial_fd, out_str.c_str(), out_str.length());
+                    }
+
+                    ts_data.push_back(current_ts);
+                    alt_data.push_back(alt_filtered);
+                    acc_data.push_back(acc_filtered);
+
+                    // MAPPING THE AXES:
+                    // The rocket's UP axis is -Y (Ay is -9.90 on the pad, -86 during launch)
+                    // Adafruit_AHRS expects gravity on +Z (Z is DOWN). 
+                    // So we map the rocket's +Y (DOWN) to the filter's +Z (DOWN).
+                    // To keep it right-handed: X' = X, Y' = -Z, Z' = Y
+                    float ax = imu_values[0];
+                    float ay = -imu_values[2];
+                    float az = imu_values[1];
+
+                    float gx = imu_values[3];
+                    float gy = -imu_values[5];
+                    float gz = imu_values[4];
+
+                    orientation.updateIMU(gx, gy, gz, ax, ay, az);
+
+                    // The tilt from vertical is the tilt from the filter's Z axis
+                    float attitude_rad = acos(cos(orientation.getPitchRadians())*cos(orientation.getRollRadians()));
+                    
+                    // Longitudinal acceleration is -Ay (since rocket accelerates in -Y direction)
+                    float longitudinal_accel = -imu_values[1];
+                    
+                    altitude.predict(
+                        longitudinal_accel,
+                        attitude_rad,
+                        false 
+                    );
+
+                    // Initialize P0 with the first pressure reading
+                    if (P0 == 0.0f && baro_pressure > 0.0f) {
+                        P0 = baro_pressure;
+                        ground_temperature_k = baro_temp + 273.15f; // assuming celsius
+                    }
+                    
+                    // Convert pressure to altitude using compute_altitude from barometer.h
+                    float alt_baro = 0.0f;
+                    if (P0 > 0.0f) {
+                        alt_baro = compute_altitude(baro_pressure, P0);
+                    }
+
+                    altitude.update(alt_baro);
+
+                    altitude_filtered_data.push_back(altitude.getState()[0]);
+                    delta_data.push_back(altitude.getState()[0] - alt_filtered);
+
                 }
+            }
         }
     }
 
@@ -333,7 +352,10 @@ int main(int argc, char** argv){
                 ts_data.clear();
                 alt_data.clear();
                 acc_data.clear();
+                altitude_filtered_data.clear(); // FIX: Clear this array so it doesn't cause out-of-bounds segfaults
+                delta_data.clear();
                 current_ts = 0.0f;
+                P0 = 0.0f; // Reset pressure reference
                 
                 file_imu.clear(); file_imu.seekg(0);
                 file_baro.clear(); file_baro.seekg(0);
@@ -363,18 +385,23 @@ int main(int argc, char** argv){
             ImGui::Separator();
             
             if (!ts_data.empty()) {
-                ImVec2 plot_size = ImVec2(-1, ImGui::GetContentRegionAvail().y / 2.0f);
+                ImVec2 plot_size = ImVec2(-1, 300);
                 if (ImPlot::BeginPlot("Altitude", plot_size)) {
                     ImPlot::SetupAxes("Time (s)", "Altitude AGL (m)", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
                     ImPlot::PlotLine("filteredAltitudeAGL", ts_data.data(), alt_data.data(), ts_data.size());
                     ImPlot::EndPlot();
                 }
-                if (ImPlot::BeginPlot("Altitude StarFly", ImVec2(-1, -1))) {
+                if (ImPlot::BeginPlot("Altitude StarFly", plot_size)) {
                     ImPlot::SetupAxes("Time (s)", "Altitude AGL (m)", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
                     ImPlot::PlotLine("filteredAltitudeAGL", ts_data.data(), altitude_filtered_data.data(), ts_data.size());
                     ImPlot::EndPlot();
                 }
-                if (ImPlot::BeginPlot("Acceleration", ImVec2(-1, -1))) {
+                if (ImPlot::BeginPlot("Delta (Starfly - CSV)", plot_size)) {
+                    ImPlot::SetupAxes("Time (s)", "Delta (m)", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
+                    ImPlot::PlotLine("Delta", ts_data.data(), delta_data.data(), ts_data.size());
+                    ImPlot::EndPlot();
+                }
+                if (ImPlot::BeginPlot("Acceleration", plot_size)) {
                     ImPlot::SetupAxes("Time (s)", "Acceleration (m/s^2)", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
                     ImPlot::PlotLine("filteredAcceleration", ts_data.data(), acc_data.data(), ts_data.size());
                     ImPlot::EndPlot();
