@@ -109,7 +109,7 @@ public:
 	void predict(float a, float alpha, bool airbrake_trigger)
 	{
 		//alpha è l'angolo di tilt rispetto alla verticale
-		A(0,1) = dt * cos(alpha);
+		A(0,1) = dt;// * cos(alpha);
 
 		if (!airbrake_trigger) {
 			if (a > a_boost) {
@@ -134,7 +134,7 @@ public:
 			}
 		}
 
-		x = A*x + g0*(a*cos(alpha) - g*cos(alpha)*cos(alpha))*u;
+		x = A*x + (a*cos(alpha) - g)*u;
 		//x = A*x;
 		P = A*P*A.transpose() + Q;
 

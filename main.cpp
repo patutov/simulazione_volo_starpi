@@ -253,7 +253,9 @@ int main(int argc, char** argv){
                     // Initialize P0 with the first pressure reading
                     if (P0 == 0.0f && baro_pressure > 0.0f) {
                         P0 = baro_pressure;
-                        ground_temperature_k = baro_temp + 273.15f; // assuming celsius
+
+                        //IMPORTANTE: il Vega sembra assumere baro_temp = 15 e costante 
+                        ground_temperature_k = baro_temp + 273.15f; // assuming celsius 
                     }
                     
                     // Convert pressure to altitude using compute_altitude from barometer.h
