@@ -81,17 +81,35 @@ int init_serial(const char* portname) {
     return fd;
 }
 
+void print_help(const char* prog_name, std::ostream& os = std::cout) {
+    os << "Uso: " << prog_name << " [-d <cartella_dati>]\n\n"
+       << "Opzioni:\n"
+       << "  -d <cartella_dati>   Specifica la cartella contenente i file CSV\n"
+       << "                       (imu.csv, baro.csv, filteredDataInfo.csv).\n"
+       << "                       Default: cartella corrente\n"
+       << "  -h, --help           Mostra questo messaggio di aiuto ed esce\n";
+}
+
 int main(int argc, char** argv){
     std::filesystem::path data_dir = std::filesystem::current_path();
 
     for (int i = 1; i < argc; ++i) {
-        if (std::string(argv[i]) == "-d") {
+        std::string arg = argv[i];
+        if (arg == "-d") {
             if (i + 1 < argc) {
                 data_dir = argv[++i];
             } else {
-                std::cerr << "Errore: l'opzione -d richiede un percorso di cartella\n";
+                std::cerr << "Errore: l'opzione -d richiede un percorso di cartella\n\n";
+                print_help(argv[0], std::cerr);
                 return 1;
             }
+        } else if (arg == "-h" || arg == "--help") {
+            print_help(argv[0], std::cout);
+            return 0;
+        } else {
+            std::cerr << "Opzione non riconosciuta: " << arg << "\n\n";
+            print_help(argv[0], std::cerr);
+            return 1;
         }
     }
 
@@ -100,7 +118,8 @@ int main(int argc, char** argv){
     std::fstream file_filtered(data_dir / "filteredDataInfo.csv", std::ios::in);
 
     if (!file_imu.is_open() || !file_baro.is_open() || !file_filtered.is_open()) {
-        std::cerr << "File imu.csv, baro.csv o filteredDataInfo.csv non trovati in " << data_dir << "\n";
+        std::cerr << "File imu.csv, baro.csv o filteredDataInfo.csv non trovati in " << data_dir << "\n\n";
+        print_help(argv[0], std::cerr);
         return 1;
     }
 
