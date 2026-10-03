@@ -184,6 +184,8 @@ int main(int argc, char** argv){
 
     std::vector<float> altitude_filtered_data;
     std::vector<float> delta_data;
+    std::vector<std::pair<float, std::string>> state_changes;
+    RocketState last_rocket_state = RS_IDLE;
     float P0 = 0.0f;
     bool imu_healthy = true;
     bool baro_healthy = true;
@@ -414,6 +416,8 @@ int main(int argc, char** argv){
                 acc_data.clear();
                 altitude_filtered_data.clear(); // FIX: Clear this array so it doesn't cause out-of-bounds segfaults
                 delta_data.clear();
+                state_changes.clear();
+                last_rocket_state = RS_IDLE;
                 current_ts = 0.0f;
                 P0 = 0.0f; // Reset pressure reference
                 imu_healthy = true;
@@ -462,24 +466,37 @@ int main(int argc, char** argv){
 
             if (!ts_data.empty()) {
                 ImVec2 plot_size = ImVec2(-1, 300);
+
+                auto drawStateLines = [&]() {
+                    for (const auto& change : state_changes) {
+                        double x[1] = { change.first };
+                        ImPlot::PlotInfLines(change.second.c_str(), x, 1);
+                        ImPlot::Annotation(change.first, ImPlot::GetPlotLimits().Y.Min, ImVec4(1,1,1,1), ImVec2(5,-15), false, "%s", change.second.c_str());
+                    }
+                };
+
                 if (ImPlot::BeginPlot("Altitude", plot_size)) {
                     ImPlot::SetupAxes("Time (s)", "Altitude AGL (m)", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
                     ImPlot::PlotLine("filteredAltitudeAGL", ts_data.data(), alt_data.data(), ts_data.size());
+                    drawStateLines();
                     ImPlot::EndPlot();
                 }
                 if (ImPlot::BeginPlot("Altitude StarFly", plot_size)) {
                     ImPlot::SetupAxes("Time (s)", "Altitude AGL (m)", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
                     ImPlot::PlotLine("filteredAltitudeAGL", ts_data.data(), altitude_filtered_data.data(), ts_data.size());
+                    drawStateLines();
                     ImPlot::EndPlot();
                 }
                 if (ImPlot::BeginPlot("Delta (Starfly - CSV)", plot_size)) {
                     ImPlot::SetupAxes("Time (s)", "Delta (m)", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
                     ImPlot::PlotLine("Delta", ts_data.data(), delta_data.data(), ts_data.size());
+                    drawStateLines();
                     ImPlot::EndPlot();
                 }
                 if (ImPlot::BeginPlot("Acceleration", plot_size)) {
                     ImPlot::SetupAxes("Time (s)", "Acceleration (m/s^2)", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
                     ImPlot::PlotLine("filteredAcceleration", ts_data.data(), acc_data.data(), ts_data.size());
+                    drawStateLines();
                     ImPlot::EndPlot();
                 }
             }
