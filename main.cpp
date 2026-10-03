@@ -225,7 +225,7 @@ int main(int argc, char** argv){
                         } else if (i == 1) {
                             continue; // skip ID
                         } else {
-                            if (i - 2 < imu_values.size()) {
+                            if ((size_t)i - 2 < imu_values.size()) {
                                 imu_values[i-2] = std::stof(value_imu);
                             }
                             ss_out << value_imu << ",";
@@ -355,12 +355,12 @@ int main(int argc, char** argv){
             if (std::chrono::duration_cast<std::chrono::milliseconds>(current_refresh_time - last_port_refresh_time).count() >= 1000) {
                 last_port_refresh_time = current_refresh_time;
                 std::string current_selection = "";
-                if (!available_ports.empty() && selected_port_idx < available_ports.size()) {
+                if (!available_ports.empty() && (size_t)selected_port_idx < available_ports.size()) {
                     current_selection = available_ports[selected_port_idx];
                 }
                 available_ports = get_available_ports();
                 selected_port_idx = 0;
-                for (int i = 0; i < available_ports.size(); i++) {
+                for (int i = 0; (size_t)i < available_ports.size(); i++) {
                     if (available_ports[i] == current_selection) {
                         selected_port_idx = i;
                         break;
@@ -376,7 +376,7 @@ int main(int argc, char** argv){
 
             ImGui::PushItemWidth(250);
             if (ImGui::BeginCombo("##Serial Port", preview_value.c_str())) {
-                for (int i = 0; i < (int)available_ports.size(); i++) {
+                for (int i = 0; (size_t)i < available_ports.size(); i++) {
                     const bool is_selected = (selected_port_idx == i);
                     if (ImGui::Selectable(available_ports[i].c_str(), is_selected)) {
                         selected_port_idx = i;
