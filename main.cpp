@@ -23,6 +23,7 @@
 #include "Adafruit_AHRS_Mahony.h"
 #include "barometer.h"
 #include "fsm.hpp"
+#include "sensor_health.hpp"
 
 // State filter for orientation estimation, used in the IMU task
 Adafruit_Mahony orientation;
@@ -155,6 +156,10 @@ int main(int argc, char** argv){
     std::vector<std::pair<float, std::string>> state_changes;
     RocketState last_rocket_state = RS_IDLE;
     float P0 = 0.0f;
+    bool imu_healthy = true;
+    bool baro_healthy = true;
+    int imu_variance_checks = 0;
+    int baro_variance_checks = 0;
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
@@ -260,7 +265,8 @@ int main(int argc, char** argv){
                         P0 = baro_pressure;
 
                         //IMPORTANTE: il Vega sembra assumere baro_temp = 15 e costante 
-                        ground_temperature_k = baro_temp + 273.15f; // assuming celsius 
+                        ground_temperature_k = 15.0f + 273.15f; // assuming celsius
+                        //todo: in caso metti baro_temp al posto di 15.0f 
                     }
                     
                     // Convert pressure to altitude using compute_altitude from barometer.h
@@ -277,6 +283,12 @@ int main(int argc, char** argv){
 
                     
                     RocketState rocket_state = parachute_task(altitude.getState()[1], altitude.getState()[0],  longitudinal_accel * cos(attitude_rad) / 9.80665, current_ts);
+                    
+                    if (current_ts <= -0.3f) {
+                        if (imu_healthy) imu_healthy = is_imu_healthy_ground(imu_values[0] / 9.80665, imu_values[1] / 9.80665, imu_values[2] / 9.80665, imu_values[3], imu_values[4], imu_values[5], imu_variance_checks);
+                        if (baro_healthy) baro_healthy = is_baro_healthy_ground(baro_pressure, baro_temp, baro_variance_checks);
+                    }
+
                     if (ts_data.empty() || rocket_state != last_rocket_state) {
                         std::string state_name;
                         switch(rocket_state) {
@@ -383,6 +395,10 @@ int main(int argc, char** argv){
                 last_rocket_state = RS_IDLE;
                 current_ts = 0.0f;
                 P0 = 0.0f; // Reset pressure reference
+                imu_healthy = true;
+                baro_healthy = true;
+                imu_variance_checks = 0;
+                baro_variance_checks = 0;
                 
                 file_imu.clear(); file_imu.seekg(0);
                 file_baro.clear(); file_baro.seekg(0);
@@ -408,6 +424,18 @@ int main(int argc, char** argv){
                     serial_fd = -1;
                 }
             }
+            
+            ImGui::Spacing();
+            ImGui::Text("IMU Status: ");
+            ImGui::SameLine();
+            if (imu_healthy) ImGui::TextColored(ImVec4(0, 1, 0, 1), "HEALTHY (Checks: %d)", imu_variance_checks);
+            else ImGui::TextColored(ImVec4(1, 0, 0, 1), "FAULT (Checks: %d)", imu_variance_checks);
+
+            ImGui::SameLine(250);
+            ImGui::Text("BARO Status: ");
+            ImGui::SameLine();
+            if (baro_healthy) ImGui::TextColored(ImVec4(0, 1, 0, 1), "HEALTHY (Checks: %d)", baro_variance_checks);
+            else ImGui::TextColored(ImVec4(1, 0, 0, 1), "FAULT (Checks: %d)", baro_variance_checks);
             
             ImGui::Separator();
             
