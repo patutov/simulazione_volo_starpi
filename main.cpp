@@ -22,7 +22,7 @@
 #include "KalmanFilter.hpp"
 #include "Adafruit_AHRS_Mahony.h"
 #include "barometer.h"
-
+#include "fsm.hpp"
 
 // State filter for orientation estimation, used in the IMU task
 Adafruit_Mahony orientation;
@@ -152,6 +152,8 @@ int main(int argc, char** argv){
 
     std::vector<float> altitude_filtered_data;
     std::vector<float> delta_data;
+    std::vector<std::pair<float, std::string>> state_changes;
+    RocketState last_rocket_state = RS_IDLE;
     float P0 = 0.0f;
 
     while (!glfwWindowShouldClose(window)) {
@@ -242,7 +244,10 @@ int main(int argc, char** argv){
                     float attitude_rad = acos(cos(orientation.getPitchRadians())*cos(orientation.getRollRadians()));
                     
                     // Longitudinal acceleration is -Ay (since rocket accelerates in -Y direction)
-                    float longitudinal_accel = -imu_values[1];
+                    float longitudinal_accel = -imu_values[1]; 
+                    //todo: tenere conto anche di quella perpendicolare?
+
+
                     
                     altitude.predict(
                         longitudinal_accel,
@@ -268,6 +273,24 @@ int main(int argc, char** argv){
 
                     altitude_filtered_data.push_back(altitude.getState()[0]);
                     delta_data.push_back(altitude.getState()[0] - alt_filtered);
+
+
+                    
+                    RocketState rocket_state = parachute_task(altitude.getState()[1], altitude.getState()[0],  longitudinal_accel * cos(attitude_rad) / 9.80665, current_ts);
+                    if (ts_data.empty() || rocket_state != last_rocket_state) {
+                        std::string state_name;
+                        switch(rocket_state) {
+                            case RS_IDLE: state_name = "IDLE"; break;
+                            case RS_BOOST: state_name = "BOOST"; break;
+                            case RS_COAST: state_name = "COAST"; break;
+                            case RS_DROGUE: state_name = "DROGUE"; break;
+                            case RS_MAIN: state_name = "MAIN"; break;
+                            case RS_TOUCHDOWN: state_name = "TOUCHDOWN"; break;
+                            default: state_name = "UNKNOWN"; break;
+                        }
+                        state_changes.push_back({current_ts, state_name});
+                        last_rocket_state = rocket_state;
+                    }
 
                 }
             }
@@ -356,6 +379,8 @@ int main(int argc, char** argv){
                 acc_data.clear();
                 altitude_filtered_data.clear(); // FIX: Clear this array so it doesn't cause out-of-bounds segfaults
                 delta_data.clear();
+                state_changes.clear();
+                last_rocket_state = RS_IDLE;
                 current_ts = 0.0f;
                 P0 = 0.0f; // Reset pressure reference
                 
@@ -388,24 +413,37 @@ int main(int argc, char** argv){
             
             if (!ts_data.empty()) {
                 ImVec2 plot_size = ImVec2(-1, 300);
+                
+                auto drawStateLines = [&]() {
+                    for (const auto& change : state_changes) {
+                        double x[1] = { change.first };
+                        ImPlot::PlotInfLines(change.second.c_str(), x, 1);
+                        ImPlot::Annotation(change.first, ImPlot::GetPlotLimits().Y.Min, ImVec4(1,1,1,1), ImVec2(5,-15), false, "%s", change.second.c_str());
+                    }
+                };
+
                 if (ImPlot::BeginPlot("Altitude", plot_size)) {
                     ImPlot::SetupAxes("Time (s)", "Altitude AGL (m)", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
                     ImPlot::PlotLine("filteredAltitudeAGL", ts_data.data(), alt_data.data(), ts_data.size());
+                    drawStateLines();
                     ImPlot::EndPlot();
                 }
                 if (ImPlot::BeginPlot("Altitude StarFly", plot_size)) {
                     ImPlot::SetupAxes("Time (s)", "Altitude AGL (m)", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
                     ImPlot::PlotLine("filteredAltitudeAGL", ts_data.data(), altitude_filtered_data.data(), ts_data.size());
+                    drawStateLines();
                     ImPlot::EndPlot();
                 }
                 if (ImPlot::BeginPlot("Delta (Starfly - CSV)", plot_size)) {
                     ImPlot::SetupAxes("Time (s)", "Delta (m)", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
                     ImPlot::PlotLine("Delta", ts_data.data(), delta_data.data(), ts_data.size());
+                    drawStateLines();
                     ImPlot::EndPlot();
                 }
                 if (ImPlot::BeginPlot("Acceleration", plot_size)) {
                     ImPlot::SetupAxes("Time (s)", "Acceleration (m/s^2)", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
                     ImPlot::PlotLine("filteredAcceleration", ts_data.data(), acc_data.data(), ts_data.size());
+                    drawStateLines();
                     ImPlot::EndPlot();
                 }
             }
