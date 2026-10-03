@@ -82,6 +82,36 @@ int init_serial(const char* portname) {
 }
 
 int main(int argc, char** argv){
+    std::filesystem::path data_dir = std::filesystem::current_path();
+
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "-d") {
+            if (i + 1 < argc) {
+                data_dir = argv[++i];
+            } else {
+                std::cerr << "Errore: l'opzione -d richiede un percorso di cartella\n";
+                return 1;
+            }
+        }
+    }
+
+    std::fstream file_imu(data_dir / "imu.csv", std::ios::in);
+    std::fstream file_baro(data_dir / "baro.csv", std::ios::in);
+    std::fstream file_filtered(data_dir / "filteredDataInfo.csv", std::ios::in);
+
+    if (!file_imu.is_open() || !file_baro.is_open() || !file_filtered.is_open()) {
+        std::cerr << "File imu.csv, baro.csv o filteredDataInfo.csv non trovati in " << data_dir << "\n";
+        return 1;
+    }
+
+    std::string header = "ts,Ax,Ay,Az,Gx,Gy,Gz,P,filteredAltitudeAGL,filteredAcceleration\n";
+    std::string line_imu, line_baro, line_filtered;
+
+    // Read the headers first
+    if (!std::getline(file_imu, line_imu) || !std::getline(file_baro, line_baro) || !std::getline(file_filtered, line_filtered)) {
+        std::cerr << "Almeno un file è vuoto\n";
+        return 1;
+    }
 
     // Initialize GLFW
     if (!glfwInit()) {
@@ -114,24 +144,6 @@ int main(int argc, char** argv){
     ImGui_ImplOpenGL3_Init(glsl_version);
 
     std::filesystem::path current_dir = get_current_dir();
-    
-    std::fstream file_imu(current_dir / "imu.csv", std::ios::in);
-    std::fstream file_baro(current_dir / "baro.csv", std::ios::in);
-    std::fstream file_filtered(current_dir / "filteredDataInfo.csv", std::ios::in);
-
-    if (!file_imu.is_open() || !file_baro.is_open() || !file_filtered.is_open()) {
-        std::cerr << "File imu.csv, baro.csv o filteredDataInfo.csv non trovati\n";
-        return 1;
-    }
-    
-    std::string header = "ts,Ax,Ay,Az,Gx,Gy,Gz,P,filteredAltitudeAGL,filteredAcceleration\n";
-    std::string line_imu, line_baro, line_filtered;    
-    
-    // Read the headers first
-    if (!std::getline(file_imu, line_imu) || !std::getline(file_baro, line_baro) || !std::getline(file_filtered, line_filtered)) {
-        std::cerr << "Almeno un file è vuoto\n";
-        return 1;
-    }
 
     std::vector<float> ts_data;
     std::vector<float> alt_data;
@@ -167,14 +179,14 @@ int main(int argc, char** argv){
                     last_time += std::chrono::milliseconds(10);
 
                 if (std::getline(file_imu, line_imu) && std::getline(file_baro, line_baro) && std::getline(file_filtered, line_filtered)) {
-                    
+
                     std::stringstream ss_imu(line_imu);
                     std::stringstream ss_baro(line_baro);
                     std::stringstream ss_filtered(line_filtered);
                     std::stringstream ss_out;
 
                     std::string value_imu, value_baro, value_filtered;
-                    
+
                     std::vector<float> imu_values(6, 0.0f); // Ax, Ay, Az, Gx, Gy, Gz
                     for (int i = 0; std::getline(ss_imu, value_imu, ',' ); i++) {
                         if (i == 0) {
@@ -199,7 +211,7 @@ int main(int argc, char** argv){
                         if (i == 3){
                             baro_pressure = std::stof(value_baro);
                             ss_out << value_baro << ",";
-                        } 
+                        }
                     }
 
                     float alt_filtered = 0.0f, acc_filtered = 0.0f;
@@ -207,13 +219,13 @@ int main(int argc, char** argv){
                         if (i == 1) alt_filtered = std::stof(value_filtered); // Extract filteredAltitudeAGL
                         if (i == 2) acc_filtered = std::stof(value_filtered); // Extract filteredAcceleration
 
-                        if (i != 0) 
+                        if (i != 0)
                             ss_out << "," << value_filtered << (i == 1 ? "," : "");
                     }
 
                     ss_out << '\n';
                     std::string out_str = ss_out.str();
-                    
+
                     std::cout << out_str << std::flush;
                     if (serial_fd != -1) {
                         write(serial_fd, out_str.c_str(), out_str.length());
@@ -225,7 +237,7 @@ int main(int argc, char** argv){
 
                     // MAPPING THE AXES:
                     // The rocket's UP axis is -Y (Ay is -9.90 on the pad, -86 during launch)
-                    // Adafruit_AHRS expects gravity on +Z (Z is DOWN). 
+                    // Adafruit_AHRS expects gravity on +Z (Z is DOWN).
                     // So we map the rocket's +Y (DOWN) to the filter's +Z (DOWN).
                     // To keep it right-handed: X' = X, Y' = -Z, Z' = Y
                     float ax = imu_values[0];
@@ -240,24 +252,24 @@ int main(int argc, char** argv){
 
                     // The tilt from vertical is the tilt from the filter's Z axis
                     float attitude_rad = acos(cos(orientation.getPitchRadians())*cos(orientation.getRollRadians()));
-                    
+
                     // Longitudinal acceleration is -Ay (since rocket accelerates in -Y direction)
                     float longitudinal_accel = -imu_values[1];
-                    
+
                     altitude.predict(
                         longitudinal_accel,
                         attitude_rad,
-                        false 
+                        false
                     );
 
                     // Initialize P0 with the first pressure reading
                     if (P0 == 0.0f && baro_pressure > 0.0f) {
                         P0 = baro_pressure;
 
-                        //IMPORTANTE: il Vega sembra assumere baro_temp = 15 e costante 
-                        ground_temperature_k = baro_temp + 273.15f; // assuming celsius 
+                        //IMPORTANTE: il Vega sembra assumere baro_temp = 15 e costante
+                        ground_temperature_k = baro_temp + 273.15f; // assuming celsius
                     }
-                    
+
                     // Convert pressure to altitude using compute_altitude from barometer.h
                     float alt_baro = 0.0f;
                     if (P0 > 0.0f) {
@@ -283,7 +295,7 @@ int main(int argc, char** argv){
         ImGui::SetNextWindowPos(viewport->WorkPos);
         ImGui::SetNextWindowSize(viewport->WorkSize);
         ImGui::Begin("Live Plots", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
-        
+
         if (!is_started) {
             auto current_refresh_time = std::chrono::steady_clock::now();
             if (std::chrono::duration_cast<std::chrono::milliseconds>(current_refresh_time - last_port_refresh_time).count() >= 1000) {
@@ -304,7 +316,7 @@ int main(int argc, char** argv){
 
             ImGui::Text("Select Serial Port (Auto-updating):");
             std::string preview_value = available_ports.empty() ? "No ports found" : available_ports[selected_port_idx];
-            
+
             ImGui::PushItemWidth(250);
             if (ImGui::BeginCombo("##Serial Port", preview_value.c_str())) {
                 for (int i = 0; i < available_ports.size(); i++) {
@@ -319,7 +331,7 @@ int main(int argc, char** argv){
             ImGui::PopItemWidth();
 
             ImGui::Separator();
-            
+
             if (ImGui::Button("START STREAMING AND PLOTTING", ImVec2(300, 50))) {
                 if (!available_ports.empty()) {
                     serial_fd = init_serial(available_ports[selected_port_idx].c_str());
@@ -327,12 +339,12 @@ int main(int argc, char** argv){
                         std::cerr << "Failed to open serial port " << available_ports[selected_port_idx] << "\n";
                     }
                 }
-                
+
                 std::cout << header << std::flush;
                 if (serial_fd != -1) {
                     write(serial_fd, header.c_str(), header.length());
                 }
-                
+
                 is_started = true;
                 last_time = std::chrono::steady_clock::now(); // Reset timing
             }
@@ -358,19 +370,19 @@ int main(int argc, char** argv){
                 delta_data.clear();
                 current_ts = 0.0f;
                 P0 = 0.0f; // Reset pressure reference
-                
+
                 file_imu.clear(); file_imu.seekg(0);
                 file_baro.clear(); file_baro.seekg(0);
                 file_filtered.clear(); file_filtered.seekg(0);
-                
+
                 std::getline(file_imu, line_imu);
                 std::getline(file_baro, line_baro);
                 std::getline(file_filtered, line_filtered);
-                
+
                 if (serial_fd != -1) {
                     write(serial_fd, header.c_str(), header.length());
                 }
-                
+
                 last_time = std::chrono::steady_clock::now();
                 is_paused = false;
             }
@@ -383,9 +395,9 @@ int main(int argc, char** argv){
                     serial_fd = -1;
                 }
             }
-            
+
             ImGui::Separator();
-            
+
             if (!ts_data.empty()) {
                 ImVec2 plot_size = ImVec2(-1, 300);
                 if (ImPlot::BeginPlot("Altitude", plot_size)) {
@@ -424,7 +436,7 @@ int main(int argc, char** argv){
 
         glfwSwapBuffers(window);
     }
-    
+
     // Cleanup
     if (serial_fd != -1) {
         close(serial_fd);

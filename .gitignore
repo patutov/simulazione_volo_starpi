@@ -1,1 +1,5 @@
 imgui.ini
+*.o
+.ccls-cache
+compile_commands.json
+plotter
