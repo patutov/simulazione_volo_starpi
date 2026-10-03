@@ -83,16 +83,18 @@ int init_serial(const char* portname) {
 }
 
 void print_help(const char* prog_name, std::ostream& os = std::cout) {
-    os << "Uso: " << prog_name << " [-d <cartella_dati>]\n\n"
+    os << "Uso: " << prog_name << " [-d <cartella_dati>] [-s | --serial]\n\n"
        << "Opzioni:\n"
        << "  -d <cartella_dati>   Specifica la cartella contenente i file CSV\n"
        << "                       (imu.csv, baro.csv, filteredDataInfo.csv).\n"
        << "                       Default: cartella corrente\n"
+       << "  -s, --serial         Abilita l'output seriale (disabilitato di default)\n"
        << "  -h, --help           Mostra questo messaggio di aiuto ed esce\n";
 }
 
 int main(int argc, char** argv){
     std::filesystem::path data_dir = std::filesystem::current_path();
+    bool enable_serial = false;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -104,6 +106,8 @@ int main(int argc, char** argv){
                 print_help(argv[0], std::cerr);
                 return 1;
             }
+        } else if (arg == "-s" || arg == "--serial" || arg == "--enable-serial") {
+            enable_serial = true;
         } else if (arg == "-h" || arg == "--help") {
             print_help(argv[0], std::cout);
             return 0;
@@ -252,9 +256,11 @@ int main(int argc, char** argv){
                     ss_out << '\n';
                     std::string out_str = ss_out.str();
 
-                    std::cout << out_str << std::flush;
-                    if (serial_fd != -1) {
-                        write(serial_fd, out_str.c_str(), out_str.length());
+                    if (enable_serial) {
+                        std::cout << out_str << std::flush;
+                        if (serial_fd != -1) {
+                            write(serial_fd, out_str.c_str(), out_str.length());
+                        }
                     }
 
                     ts_data.push_back(current_ts);
@@ -362,12 +368,15 @@ int main(int argc, char** argv){
                 }
             }
 
+            ImGui::Checkbox("Enable Serial Output", &enable_serial);
+
+            ImGui::BeginDisabled(!enable_serial);
             ImGui::Text("Select Serial Port (Auto-updating):");
             std::string preview_value = available_ports.empty() ? "No ports found" : available_ports[selected_port_idx];
 
             ImGui::PushItemWidth(250);
             if (ImGui::BeginCombo("##Serial Port", preview_value.c_str())) {
-                for (int i = 0; i < available_ports.size(); i++) {
+                for (int i = 0; i < (int)available_ports.size(); i++) {
                     const bool is_selected = (selected_port_idx == i);
                     if (ImGui::Selectable(available_ports[i].c_str(), is_selected)) {
                         selected_port_idx = i;
@@ -377,20 +386,23 @@ int main(int argc, char** argv){
                 ImGui::EndCombo();
             }
             ImGui::PopItemWidth();
+            ImGui::EndDisabled();
 
             ImGui::Separator();
 
             if (ImGui::Button("START STREAMING AND PLOTTING", ImVec2(300, 50))) {
-                if (!available_ports.empty()) {
+                if (enable_serial && !available_ports.empty()) {
                     serial_fd = init_serial(available_ports[selected_port_idx].c_str());
                     if (serial_fd == -1) {
                         std::cerr << "Failed to open serial port " << available_ports[selected_port_idx] << "\n";
                     }
                 }
 
-                std::cout << header << std::flush;
-                if (serial_fd != -1) {
-                    write(serial_fd, header.c_str(), header.length());
+                if (enable_serial) {
+                    std::cout << header << std::flush;
+                    if (serial_fd != -1) {
+                        write(serial_fd, header.c_str(), header.length());
+                    }
                 }
 
                 is_started = true;
@@ -433,8 +445,11 @@ int main(int argc, char** argv){
                 std::getline(file_baro, line_baro);
                 std::getline(file_filtered, line_filtered);
 
-                if (serial_fd != -1) {
-                    write(serial_fd, header.c_str(), header.length());
+                if (enable_serial) {
+                    std::cout << header << std::flush;
+                    if (serial_fd != -1) {
+                        write(serial_fd, header.c_str(), header.length());
+                    }
                 }
 
                 last_time = std::chrono::steady_clock::now();
