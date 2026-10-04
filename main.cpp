@@ -284,12 +284,16 @@ int main(int argc, char** argv){
 
                     // The tilt from vertical is the tilt from the filter's Z axis
                     float attitude_rad = acos(cos(orientation.getPitchRadians())*cos(orientation.getRollRadians()));
+                    
+                    // float longitudinal_accel = -az;
+                    float vertical_accel = 
+                        +ax * sin(orientation.getPitchRadians()) 
+                        -az * cos(orientation.getPitchRadians()) * cos(orientation.getRollRadians()) 
+                        -ay * sin(orientation.getRollRadians()) * cos(orientation.getPitchRadians());
 
-                    // Longitudinal acceleration is -Ay (since rocket accelerates in -Y direction)
-                    float longitudinal_accel = -imu_values[1];
-
+                    
                     altitude.predict(
-                        longitudinal_accel,
+                        vertical_accel,
                         attitude_rad,
                         false
                     );
@@ -298,9 +302,9 @@ int main(int argc, char** argv){
                     if (P0 == 0.0f && baro_pressure > 0.0f) {
                         P0 = baro_pressure;
 
-                        //IMPORTANTE: il Vega sembra assumere baro_temp = 15 e costante
-                        //ground_temperature_k = baro_temp + 273.15f; // assuming celsius
+                        //IMPORTANTE: il Vega sembra assumere baro_temp = 15 e costante 
                         ground_temperature_k = 15.0f + 273.15f; // assuming celsius
+                        //todo: in caso metti baro_temp al posto di 15.0f 
                     }
 
                     // Convert pressure to altitude using compute_altitude from barometer.h
@@ -314,8 +318,10 @@ int main(int argc, char** argv){
                     altitude_filtered_data.push_back(altitude.getState()[0]);
                     delta_data.push_back(altitude.getState()[0] - alt_filtered);
 
-                    RocketState rocket_state = parachute_task(altitude.getState()[1], altitude.getState()[0],  longitudinal_accel * cos(attitude_rad) / 9.80665, current_ts);
 
+                    
+                    RocketState rocket_state = parachute_task(altitude.getState()[1], altitude.getState()[0],  vertical_accel * cos(attitude_rad) / 9.80665, current_ts);
+                    
                     if (current_ts <= -0.3f) {
                         if (imu_healthy) imu_healthy = is_imu_healthy_ground(imu_values[0] / 9.80665, imu_values[1] / 9.80665, imu_values[2] / 9.80665, imu_values[3], imu_values[4], imu_values[5], imu_variance_checks);
                         if (baro_healthy) baro_healthy = is_baro_healthy_ground(baro_pressure, baro_temp, baro_variance_checks);
@@ -335,6 +341,7 @@ int main(int argc, char** argv){
                         state_changes.push_back({current_ts, state_name});
                         last_rocket_state = rocket_state;
                     }
+
                 }
             }
         }
@@ -436,7 +443,7 @@ int main(int argc, char** argv){
                 baro_healthy = true;
                 imu_variance_checks = 0;
                 baro_variance_checks = 0;
-
+                
                 file_imu.clear(); file_imu.seekg(0);
                 file_baro.clear(); file_baro.seekg(0);
                 file_filtered.clear(); file_filtered.seekg(0);
@@ -464,7 +471,7 @@ int main(int argc, char** argv){
                     serial_fd = -1;
                 }
             }
-
+            
             ImGui::Spacing();
             ImGui::Text("IMU Status: ");
             ImGui::SameLine();
@@ -476,12 +483,12 @@ int main(int argc, char** argv){
             ImGui::SameLine();
             if (baro_healthy) ImGui::TextColored(ImVec4(0, 1, 0, 1), "HEALTHY (Checks: %d)", baro_variance_checks);
             else ImGui::TextColored(ImVec4(1, 0, 0, 1), "FAULT (Checks: %d)", baro_variance_checks);
-
+            
             ImGui::Separator();
 
             if (!ts_data.empty()) {
                 ImVec2 plot_size = ImVec2(-1, 300);
-
+                
                 auto drawStateLines = [&]() {
                     for (const auto& change : state_changes) {
                         double x[1] = { change.first };
