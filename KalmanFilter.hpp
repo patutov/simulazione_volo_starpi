@@ -134,7 +134,7 @@ public:
 			}
 		}
 
-		x = A*x + (a*cos(alpha) - g)*u;
+		x = A*x + (a - g)*u;
 		//x = A*x;
 		P = A*P*A.transpose() + Q;
 
