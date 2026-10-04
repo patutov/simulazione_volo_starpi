@@ -285,11 +285,14 @@ int main(int argc, char** argv){
                     // The tilt from vertical is the tilt from the filter's Z axis
                     float attitude_rad = acos(cos(orientation.getPitchRadians())*cos(orientation.getRollRadians()));
 
-                    // Longitudinal acceleration is -Ay (since rocket accelerates in -Y direction)
-                    float longitudinal_accel = -imu_values[1];
+                    // float longitudinal_accel = -az;
+                    float vertical_accel =
+                        +ax * sin(orientation.getPitchRadians())
+                        -az * cos(orientation.getPitchRadians()) * cos(orientation.getRollRadians())
+                        -ay * sin(orientation.getRollRadians()) * cos(orientation.getPitchRadians());
 
                     altitude.predict(
-                        longitudinal_accel,
+                        vertical_accel,
                         attitude_rad,
                         false
                     );
@@ -314,7 +317,7 @@ int main(int argc, char** argv){
                     altitude_filtered_data.push_back(altitude.getState()[0]);
                     delta_data.push_back(altitude.getState()[0] - alt_filtered);
 
-                    RocketState rocket_state = parachute_task(altitude.getState()[1], altitude.getState()[0],  longitudinal_accel * cos(attitude_rad) / 9.80665, current_ts);
+                    RocketState rocket_state = parachute_task(altitude.getState()[1], altitude.getState()[0],  vertical_accel * cos(attitude_rad) / 9.80665, current_ts);
 
                     if (current_ts <= -0.3f) {
                         if (imu_healthy) imu_healthy = is_imu_healthy_ground(imu_values[0] / 9.80665, imu_values[1] / 9.80665, imu_values[2] / 9.80665, imu_values[3], imu_values[4], imu_values[5], imu_variance_checks);
