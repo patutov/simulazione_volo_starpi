@@ -1,4 +1,5 @@
 #include <iostream>
+#include <cmath>
 
 // funzione quasi uguale a quella originale
 // togliere i commenti
@@ -16,11 +17,17 @@ enum RocketState {
 		RS_TOUCHDOWN, // On ground
 	};
 
-RocketState parachute_task(float _z_speed, float _z_alt, float _z_acc, float time_s)
+RocketState parachute_task(float _z_speed, float _z_alt, float _z_acc, float time_s, bool imu_healthy, bool baro_healthy)
 {
 	// self->last_wake = xTaskGetTickCount();
 
 	static RocketState state = RS_IDLE;
+
+
+
+	static float max_alt = 0.0f;
+	max_alt = std::max(max_alt, _z_alt);
+
 
 	/* TODO:
 	 * - Change unit names m/s to MPS
@@ -106,7 +113,8 @@ RocketState parachute_task(float _z_speed, float _z_alt, float _z_acc, float tim
 				z_alt = _z_alt;// msg.payload.fv2.x;
 				z_speed = _z_speed;// msg.payload.fv2.y;
 			// } else if (msg.type == T_ACCELLERATION && msg.payload_type == P_FVEC3) {
-				z_acc = _z_acc;// msg.payload.fv3.z;
+				static constexpr float alpha_acc = 0.1f;
+				z_acc = alpha_acc * _z_acc + (1 - alpha_acc) * z_acc;// msg.payload.fv3.z;
 			// }
 		// }
 
@@ -131,8 +139,8 @@ RocketState parachute_task(float _z_speed, float _z_alt, float _z_acc, float tim
 		switch (state) {
 		case RS_IDLE:
 			// Detect motor ignition
-			if ((z_acc >= Z_ACC_BOOST_THRESHOLD_G &&
-				z_speed >= Z_SPEED_BOOST_THRESHOLD_MS) ||
+			if ((imu_healthy ? (z_acc >= Z_ACC_BOOST_THRESHOLD_G &&
+				z_speed >= Z_SPEED_BOOST_THRESHOLD_MS) : false) ||
 				z_alt >= Z_ALT_BOOST_THRESHOLD_M) {
 				sample_count++;
 			} else {
@@ -151,6 +159,7 @@ RocketState parachute_task(float _z_speed, float _z_alt, float _z_acc, float tim
 		case RS_BOOST:
 			// Detect motor burnout
 			if (z_alt >= Z_ALT_COAST_THRESHOLD_M ||
+				(imu_healthy? z_acc < 0 : false) ||
 				ms_since_ignition >= MOTOR_BURNOUT_MS) {
 				sample_count++;
 			} else {
@@ -171,8 +180,9 @@ RocketState parachute_task(float _z_speed, float _z_alt, float _z_acc, float tim
 			}
 
 			// Detect apogee
-			if (z_speed <= Z_SPEED_APOGEE_THRESHOLD_MS ||
-				z_alt >= Z_ALT_APOGEE_THRESHOLD_M ||
+			if ((imu_healthy ? z_speed <= Z_SPEED_APOGEE_THRESHOLD_MS : false) ||
+				// z_alt >= Z_ALT_APOGEE_THRESHOLD_M ||
+				z_alt < max_alt - 5.0f || 
 				ms_since_ignition >= MAX_TIME_TO_APOGEE_MS) {
 				sample_count++;
 			} else {

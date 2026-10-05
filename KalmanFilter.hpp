@@ -153,7 +153,7 @@ public:
 		float k = 25.0f; // Tolleranza (es. 5-sigma)
 		
 		if ((innovation * innovation) > k * S) {
-			return false; // OUTLIER: Scarta la lettura, mantieni solo la predict()
+			// return false; // OUTLIER: Scarta la lettura, mantieni solo la predict()
 		}
 
 		x = x + K * innovation;

@@ -243,9 +243,9 @@ int main(int argc, char** argv){
                         }
                     }
 
-                    float alt_filtered = 0.0f, acc_filtered = 0.0f;
+                    float alt_vega = 0.0f, acc_filtered = 0.0f;
                     for (int i = 0; std::getline(ss_filtered, value_filtered, ',' ); i++) {
-                        if (i == 1) alt_filtered = std::stof(value_filtered); // Extract filteredAltitudeAGL
+                        if (i == 1) alt_vega = std::stof(value_filtered); // Extract filteredAltitudeAGL
                         if (i == 2) acc_filtered = std::stof(value_filtered); // Extract filteredAcceleration
 
                         if (i != 0)
@@ -263,7 +263,7 @@ int main(int argc, char** argv){
                     }
 
                     ts_data.push_back(current_ts);
-                    alt_data.push_back(alt_filtered);
+                    alt_data.push_back(alt_vega);
                     acc_data.push_back(acc_filtered);
 
                     // MAPPING THE AXES:
@@ -302,6 +302,10 @@ int main(int argc, char** argv){
                         if (baro_healthy) baro_healthy = is_baro_healthy_flight(baro_pressure, baro_temp);
                     }
 
+                    //test delle combinazioni di fallimento sensori
+                    imu_healthy = true;
+                    baro_healthy = false;
+
                     // Se un sensore fallisce per la prima volta, salva la riga per il grafico
                     if (was_imu_healthy && !imu_healthy) {
                         fault_changes.push_back({current_ts, "IMU FAULT"});
@@ -325,20 +329,56 @@ int main(int argc, char** argv){
                     }
 
                     // solo se il barometro sembra sano
+                    float alt_baro;
+                    static float alt_baro_prev = 0.0f;
                     if (baro_healthy && P0 > 0.0f) {
-                        float alt_baro = compute_altitude(baro_pressure, P0);
+
                         
+
+                        alt_baro_prev = alt_baro;
+                        float alt_baro_new = compute_altitude(baro_pressure, P0);
+
+
                         // potrebbe scartare il dato tramite il test S
-                        bool accepted = altitude.update(alt_baro);
+                        bool accepted = altitude.update(alt_baro_new);
+                    
+
+                        // filtra esponenzialmente nel caso l'imu non sia sana
+                        if (!imu_healthy){
+                            static constexpr float alpha = 0.1;
+                            alt_baro = alpha * alt_baro_new + (1 - alpha) * alt_baro_prev;
+                        }
+
+                        if (!accepted) {
+                            // più probabile che sia un problema di accelerometro...
+                        }
                         
                     }
+                    else {
+                        //todo: prova ad avviare gps
+                    }
 
-                    altitude_filtered_data.push_back(altitude.getState()[0]);
-                    delta_data.push_back(altitude.getState()[0] - alt_filtered);
+                    float filtered_alt; 
+                    
+
+                    
+                    //se barometro funziona e imu no -> non considero filtro di kalman per l'altitudine
+                    if (baro_healthy && P0 > 0.0f && !imu_healthy) filtered_alt = alt_baro;
+                    else filtered_alt = altitude.getState()[0];
+                    
+                    altitude_filtered_data.push_back(filtered_alt);
+                    delta_data.push_back(filtered_alt - alt_vega);
+                    
+
+                    
+
 
 
                     
-                    RocketState rocket_state = parachute_task(altitude.getState()[1], altitude.getState()[0],  vertical_accel * cos(attitude_rad) / 9.80665, current_ts);
+                    RocketState rocket_state = parachute_task(
+                        altitude.getState()[1], filtered_alt,  vertical_accel * cos(attitude_rad) / 9.80665, current_ts,
+                        imu_healthy, baro_healthy
+                    );
                     
                     
 
