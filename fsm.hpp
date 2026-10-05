@@ -141,7 +141,7 @@ RocketState parachute_task(float _z_speed, float _z_alt, float _z_acc, float tim
 			// Detect motor ignition
 			if ((imu_healthy ? (z_acc >= Z_ACC_BOOST_THRESHOLD_G &&
 				z_speed >= Z_SPEED_BOOST_THRESHOLD_MS) : false) ||
-				z_alt >= Z_ALT_BOOST_THRESHOLD_M) {
+				(baro_healthy ? (z_alt) >= Z_ALT_BOOST_THRESHOLD_M : false)) {
 				sample_count++;
 			} else {
 				sample_count = 0;
@@ -158,7 +158,7 @@ RocketState parachute_task(float _z_speed, float _z_alt, float _z_acc, float tim
 
 		case RS_BOOST:
 			// Detect motor burnout
-			if (z_alt >= Z_ALT_COAST_THRESHOLD_M ||
+			if ((baro_healthy? z_alt >= Z_ALT_COAST_THRESHOLD_M : false) ||
 				(imu_healthy? z_acc < 0 : false) ||
 				ms_since_ignition >= MOTOR_BURNOUT_MS) {
 				sample_count++;
@@ -230,9 +230,10 @@ RocketState parachute_task(float _z_speed, float _z_alt, float _z_acc, float tim
 
 		case RS_MAIN:
 			// Detect touchdown
-			if (z_alt <= Z_ALT_TOUCHDOWN_M ||
-				//z_speed <= Z_SPEED_STATIONARY_MS ||
-				ms_since_ignition >= MAX_TIME_TO_TOUCHDOWN) {
+			if ((baro_healthy? z_alt <= Z_ALT_TOUCHDOWN_M : false) ||
+				(imu_healthy? z_speed <= Z_SPEED_STATIONARY_MS : false) ||
+				ms_since_ignition >= MAX_TIME_TO_TOUCHDOWN) 
+				{
 				sample_count++;
 			} else {
 				sample_count = 0;

@@ -229,7 +229,7 @@ int main(int argc, char** argv){
                             }
                             ss_out << value_imu << ",";
                         }
-                    }
+                    }//
 
                     float baro_pressure = 0.0f;
                     float baro_temp = 0.0f;
@@ -268,26 +268,26 @@ int main(int argc, char** argv){
 
                     // MAPPING THE AXES:
                     // The rocket's UP axis is -Y (Ay is -9.90 on the pad, -86 during launch)
-                    // Adafruit_AHRS expects gravity on +Z (Z is DOWN).
-                    // So we map the rocket's +Y (DOWN) to the filter's +Z (DOWN).
-                    // To keep it right-handed: X' = X, Y' = -Z, Z' = Y
+                    // Adafruit_AHRS expects gravity on +Z (Z is DOWN). Wait, no, Adafruit_AHRS expects +1g on +Z when upright!
+                    // So we must map the rocket's -Y (which is +9.9) to +Z.
+                    // To keep it right-handed: X' = X, Y' = Z, Z' = -Y
                     float ax = imu_values[0];
-                    float ay = -imu_values[2];
-                    float az = imu_values[1];
+                    float ay = imu_values[2];
+                    float az = -imu_values[1];
 
                     float gx = imu_values[3];
-                    float gy = -imu_values[5];
-                    float gz = imu_values[4];
+                    float gy = imu_values[5];
+                    float gz = -imu_values[4];
 
                     orientation.updateIMU(gx, gy, gz, ax, ay, az);
 
                     // The tilt from vertical is the tilt from the filter's Z axis
                     float attitude_rad = acos(cos(orientation.getPitchRadians())*cos(orientation.getRollRadians()));
                     
-                    // float longitudinal_accel = -az;
+                    // Z' is mapped to -Y_sensor, which points UP. So az is positive upwards!
                     float vertical_accel = 
-                        +ax * sin(orientation.getPitchRadians()) 
-                        -az * cos(orientation.getPitchRadians()) * cos(orientation.getRollRadians()) 
+                        -ax * sin(orientation.getPitchRadians()) 
+                        +az * cos(orientation.getPitchRadians()) * cos(orientation.getRollRadians()) 
                         -ay * sin(orientation.getRollRadians()) * cos(orientation.getPitchRadians());
 
                     // IN-FLIGHT / GROUND HEALTH CHECKS UNIFICATI
@@ -303,8 +303,8 @@ int main(int argc, char** argv){
                     }
 
                     //test delle combinazioni di fallimento sensori
-                    imu_healthy = true;
-                    baro_healthy = false;
+                    // imu_healthy = true;
+                    // baro_healthy = false;
 
                     // Se un sensore fallisce per la prima volta, salva la riga per il grafico
                     if (was_imu_healthy && !imu_healthy) {
@@ -328,26 +328,20 @@ int main(int argc, char** argv){
                         ground_temperature_k = 15.0f + 273.15f; 
                     }
 
+                    static float alt_baro_ema = 0.0f;
                     // solo se il barometro sembra sano
-                    float alt_baro;
-                    static float alt_baro_prev = 0.0f;
                     if (baro_healthy && P0 > 0.0f) {
 
-                        
-
-                        alt_baro_prev = alt_baro;
                         float alt_baro_new = compute_altitude(baro_pressure, P0);
-
-
                         // potrebbe scartare il dato tramite il test S
                         bool accepted = altitude.update(alt_baro_new);
                     
 
-                        // filtra esponenzialmente nel caso l'imu non sia sana
-                        if (!imu_healthy){
-                            static constexpr float alpha = 0.1;
-                            alt_baro = alpha * alt_baro_new + (1 - alpha) * alt_baro_prev;
-                        }
+                        // filtra esponenzialmente (da usare nel caso l'imu non sia sana)
+                        static constexpr float alpha = 0.1;
+                        if (alt_baro_ema == 0.0f) alt_baro_ema = alt_baro_new;
+                        alt_baro_ema = alpha * alt_baro_new + (1 - alpha) * alt_baro_ema;
+                        
 
                         if (!accepted) {
                             // più probabile che sia un problema di accelerometro...
@@ -363,7 +357,7 @@ int main(int argc, char** argv){
 
                     
                     //se barometro funziona e imu no -> non considero filtro di kalman per l'altitudine
-                    if (baro_healthy && P0 > 0.0f && !imu_healthy) filtered_alt = alt_baro;
+                    if (baro_healthy && P0 > 0.0f && !imu_healthy) filtered_alt = alt_baro_ema;
                     else filtered_alt = altitude.getState()[0];
                     
                     altitude_filtered_data.push_back(filtered_alt);
@@ -398,6 +392,7 @@ int main(int argc, char** argv){
                     }
 
                 }
+            
             }
         }
     }
