@@ -141,19 +141,27 @@ public:
 	}
 
 	// aggiornamento dello stato a partire da una misura di altitudine
-	//   h : altitudine misurata (in metri)
-	void update(float h)
+	// Ritorna true se la misura è stata accettata, false se scartata (NIS test)
+	bool update(float h)
 	{
 		float S = H*P*H.transpose() + R;
-
 		Vector2f K = P*H.transpose()/S;
-
 		float z = h;
 
-		x = x + K*(z - H*x);
-		// Forma standard
-		// P = (Matrix2f::Identity() - K * H) * P;
-		// Forma di Joseph
-		P = (Matrix2f::Identity() - K*H) * P * (Matrix2f::Identity() - K*H).transpose() + K*R*K.transpose();
+		// NIS Test: Scarta letture fisicamente assurde rispetto alla predizione
+		float innovation = z - (H * x).value(); // Estrae il float dalla matrice 1x1
+		float k = 25.0f; // Tolleranza (es. 5-sigma)
+		
+		if ((innovation * innovation) > k * S) {
+			return false; // OUTLIER: Scarta la lettura, mantieni solo la predict()
+		}
+
+		x = x + K * innovation;
+		
+		// Forma di Joseph per mantenere la covarianza simmetrica e definita positiva
+		Matrix2f I_KH = Matrix2f::Identity() - K*H;
+		P = I_KH * P * I_KH.transpose() + K*R*K.transpose();
+
+		return true;
 	}
 };

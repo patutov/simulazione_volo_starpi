@@ -3,7 +3,7 @@
 
 //check a terra
 //todo: aggiusta i threshold
-bool is_imu_healthy_ground(float ax, float ay, float az, float gx, float gy, float gz, int& variance_checks) {
+bool is_imu_healthy_ground(float ax, float ay, float az, float gx, float gy, float gz) {
 
     static int count = 0;
     static constexpr int max_count = 10; 
@@ -51,8 +51,6 @@ bool is_imu_healthy_ground(float ax, float ay, float az, float gx, float gy, flo
     static bool variance_ok = true;
 
     if (sample_index == 0) {
-        variance_checks++; // Increment counter
-        
         float ax_mean = 0, ay_mean = 0, az_mean = 0;
         float gx_mean = 0, gy_mean = 0, gz_mean = 0;
 
@@ -104,7 +102,7 @@ bool is_imu_healthy_ground(float ax, float ay, float az, float gx, float gy, flo
 }
 
 
-bool is_baro_healthy_ground(float pressure, float temperature, int& variance_checks) {
+bool is_baro_healthy_ground(float pressure, float temperature) {
     
     static int count = 0;
     static constexpr int max_count = 10; 
@@ -126,7 +124,6 @@ bool is_baro_healthy_ground(float pressure, float temperature, int& variance_che
     sample_index = (sample_index + 1) % samples;
 
     if (sample_index == 0){
-        variance_checks++; // Increment counter
 
         float press_mean = 0;
 
@@ -154,4 +151,71 @@ bool is_baro_healthy_ground(float pressure, float temperature, int& variance_che
     return count < max_count;
 }
 
+// =========================================================================
+// IN-FLIGHT HEALTH CHECKS
+// =========================================================================
 
+bool is_imu_healthy_flight(float ax, float ay, float az, float gx, float gy, float gz) {
+    // saturation check
+    float abs_ax = std::abs(ax);
+    float abs_ay = std::abs(ay);
+    float abs_az = std::abs(az);
+
+    if (abs_ax > 31.9f || abs_ay > 31.9f || abs_az > 31.9f) {
+        return false; // Ignora il dato grezzo se in saturazione meccanica
+    }
+
+    // Sensore Congelato
+    // Usiamo una finestra rapida di 5 campioni sull'asse Z
+    static constexpr int samples = 5;
+    static float az_samples[samples];
+    static int sample_index = 0;
+    
+    az_samples[sample_index] = az;
+    sample_index = (sample_index + 1) % samples;
+
+    if (sample_index == 0) {
+        float min_az = az_samples[0];
+        float max_az = az_samples[0];
+        for (int i = 1; i < samples; i++) {
+            if (az_samples[i] < min_az) min_az = az_samples[i];
+            if (az_samples[i] > max_az) max_az = az_samples[i];
+        }
+        // se massimo e minimo sono identici
+        if ((max_az - min_az) <= std::numeric_limits<float>::epsilon()) {
+            return false; 
+        }
+    }
+
+    return true;
+}
+
+bool is_baro_healthy_flight(float pressure, float temperature) {
+    // Bounds Check
+    // Pressione fisicamente impossibile
+    if (pressure < 10000.0f || pressure > 110000.0f || std::isnan(pressure)) {
+        return false;
+    }
+
+    // Sensore Congelato
+    static constexpr int samples = 5;
+    static float press_samples[samples];
+    static int sample_index = 0;
+
+    press_samples[sample_index] = pressure;
+    sample_index = (sample_index + 1) % samples;
+
+    if (sample_index == 0) {
+        float min_p = press_samples[0];
+        float max_p = press_samples[0];
+        for (int i = 1; i < samples; i++) {
+            if (press_samples[i] < min_p) min_p = press_samples[i];
+            if (press_samples[i] > max_p) max_p = press_samples[i];
+        }
+        if ((max_p - min_p) <= std::numeric_limits<float>::epsilon()) {
+            return false; 
+        }
+    }
+
+    return true;
+}

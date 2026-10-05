@@ -189,12 +189,11 @@ int main(int argc, char** argv){
     std::vector<float> altitude_filtered_data;
     std::vector<float> delta_data;
     std::vector<std::pair<float, std::string>> state_changes;
+    std::vector<std::pair<float, std::string>> fault_changes;
     RocketState last_rocket_state = RS_IDLE;
     float P0 = 0.0f;
     bool imu_healthy = true;
     bool baro_healthy = true;
-    int imu_variance_checks = 0;
-    int baro_variance_checks = 0;
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
@@ -291,29 +290,48 @@ int main(int argc, char** argv){
                         -az * cos(orientation.getPitchRadians()) * cos(orientation.getRollRadians()) 
                         -ay * sin(orientation.getRollRadians()) * cos(orientation.getPitchRadians());
 
-                    
-                    altitude.predict(
-                        vertical_accel,
-                        attitude_rad,
-                        false
-                    );
+                    // IN-FLIGHT / GROUND HEALTH CHECKS UNIFICATI
+                    bool was_imu_healthy = imu_healthy;
+                    bool was_baro_healthy = baro_healthy;
 
-                    // Initialize P0 with the first pressure reading
+                    if (current_ts <= -0.3f) {
+                        if (imu_healthy) imu_healthy = is_imu_healthy_ground(ax / 9.80665, ay / 9.80665, az / 9.80665, gx, gy, gz);
+                        if (baro_healthy) baro_healthy = is_baro_healthy_ground(baro_pressure, baro_temp);
+                    } else {
+                        if (imu_healthy) imu_healthy = is_imu_healthy_flight(ax / 9.80665, ay / 9.80665, az / 9.80665, gx, gy, gz);
+                        if (baro_healthy) baro_healthy = is_baro_healthy_flight(baro_pressure, baro_temp);
+                    }
+
+                    // Se un sensore fallisce per la prima volta, salva la riga per il grafico
+                    if (was_imu_healthy && !imu_healthy) {
+                        fault_changes.push_back({current_ts, "IMU FAULT"});
+                    }
+                    if (was_baro_healthy && !baro_healthy) {
+                        fault_changes.push_back({current_ts, "BARO FAULT"});
+                    }
+                    
+                    if (imu_healthy) { 
+                        altitude.predict(
+                            vertical_accel,
+                            attitude_rad,
+                            false
+                        );
+                    }
+
+                    // init P0
                     if (P0 == 0.0f && baro_pressure > 0.0f) {
                         P0 = baro_pressure;
-
-                        //IMPORTANTE: il Vega sembra assumere baro_temp = 15 e costante 
-                        ground_temperature_k = 15.0f + 273.15f; // assuming celsius
-                        //todo: in caso metti baro_temp al posto di 15.0f 
+                        ground_temperature_k = 15.0f + 273.15f; 
                     }
 
-                    // Convert pressure to altitude using compute_altitude from barometer.h
-                    float alt_baro = 0.0f;
-                    if (P0 > 0.0f) {
-                        alt_baro = compute_altitude(baro_pressure, P0);
+                    // solo se il barometro sembra sano
+                    if (baro_healthy && P0 > 0.0f) {
+                        float alt_baro = compute_altitude(baro_pressure, P0);
+                        
+                        // potrebbe scartare il dato tramite il test S
+                        bool accepted = altitude.update(alt_baro);
+                        
                     }
-
-                    altitude.update(alt_baro);
 
                     altitude_filtered_data.push_back(altitude.getState()[0]);
                     delta_data.push_back(altitude.getState()[0] - alt_filtered);
@@ -322,10 +340,7 @@ int main(int argc, char** argv){
                     
                     RocketState rocket_state = parachute_task(altitude.getState()[1], altitude.getState()[0],  vertical_accel * cos(attitude_rad) / 9.80665, current_ts);
                     
-                    if (current_ts <= -0.3f) {
-                        if (imu_healthy) imu_healthy = is_imu_healthy_ground(imu_values[0] / 9.80665, imu_values[1] / 9.80665, imu_values[2] / 9.80665, imu_values[3], imu_values[4], imu_values[5], imu_variance_checks);
-                        if (baro_healthy) baro_healthy = is_baro_healthy_ground(baro_pressure, baro_temp, baro_variance_checks);
-                    }
+                    
 
                     if (ts_data.empty() || rocket_state != last_rocket_state) {
                         std::string state_name;
@@ -436,14 +451,14 @@ int main(int argc, char** argv){
                 altitude_filtered_data.clear(); // FIX: Clear this array so it doesn't cause out-of-bounds segfaults
                 delta_data.clear();
                 state_changes.clear();
+                fault_changes.clear();
                 last_rocket_state = RS_IDLE;
                 current_ts = 0.0f;
                 P0 = 0.0f; // Reset pressure reference
                 imu_healthy = true;
                 baro_healthy = true;
-                imu_variance_checks = 0;
-                baro_variance_checks = 0;
                 
+
                 file_imu.clear(); file_imu.seekg(0);
                 file_baro.clear(); file_baro.seekg(0);
                 file_filtered.clear(); file_filtered.seekg(0);
@@ -475,14 +490,14 @@ int main(int argc, char** argv){
             ImGui::Spacing();
             ImGui::Text("IMU Status: ");
             ImGui::SameLine();
-            if (imu_healthy) ImGui::TextColored(ImVec4(0, 1, 0, 1), "HEALTHY (Checks: %d)", imu_variance_checks);
-            else ImGui::TextColored(ImVec4(1, 0, 0, 1), "FAULT (Checks: %d)", imu_variance_checks);
+            if (imu_healthy) ImGui::TextColored(ImVec4(0, 1, 0, 1), "HEALTHY");
+            else ImGui::TextColored(ImVec4(1, 0, 0, 1), "FAULT");
 
             ImGui::SameLine(250);
             ImGui::Text("BARO Status: ");
             ImGui::SameLine();
-            if (baro_healthy) ImGui::TextColored(ImVec4(0, 1, 0, 1), "HEALTHY (Checks: %d)", baro_variance_checks);
-            else ImGui::TextColored(ImVec4(1, 0, 0, 1), "FAULT (Checks: %d)", baro_variance_checks);
+            if (baro_healthy) ImGui::TextColored(ImVec4(0, 1, 0, 1), "HEALTHY");
+            else ImGui::TextColored(ImVec4(1, 0, 0, 1), "FAULT");
             
             ImGui::Separator();
 
@@ -494,6 +509,15 @@ int main(int argc, char** argv){
                         double x[1] = { change.first };
                         ImPlot::PlotInfLines(change.second.c_str(), x, 1);
                         ImPlot::Annotation(change.first, ImPlot::GetPlotLimits().Y.Min, ImVec4(1,1,1,1), ImVec2(5,-15), false, "%s", change.second.c_str());
+                    }
+                    for (const auto& fault : fault_changes) {
+                        double x[1] = { fault.first };
+                        
+                        ImPlotSpec spec;
+                        spec.LineColor = ImVec4(1, 0, 0, 1); // Rosso per i fault
+
+                        ImPlot::PlotInfLines(fault.second.c_str(), x, 1, spec);
+                        ImPlot::Annotation(fault.first, ImPlot::GetPlotLimits().Y.Max, ImVec4(1,0,0,1), ImVec2(5, 15), false, "%s", fault.second.c_str());
                     }
                 };
 
