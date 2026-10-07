@@ -222,7 +222,7 @@ RocketState parachute_task(float _z_speed, float _z_alt, float _z_acc, float tim
 
 		case RS_MAIN:
 			// Detect touchdown
-			if (z_alt <= Z_ALT_TOUCHDOWN_M || z_speed <= Z_SPEED_STATIONARY_MS) {
+			if (z_alt <= Z_ALT_TOUCHDOWN_M || fabs(z_speed) <= Z_SPEED_STATIONARY_MS) {
 				sample_count++;
 			} else {
 				sample_count = 0;
