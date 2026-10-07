@@ -7,6 +7,7 @@ IMGUI_SRCS = imgui/imgui.cpp imgui/imgui_draw.cpp imgui/imgui_tables.cpp imgui/i
              imgui/backends/imgui_impl_glfw.cpp imgui/backends/imgui_impl_opengl3.cpp
 IMPLOT_SRCS = implot/implot.cpp implot/implot_items.cpp implot/implot_demo.cpp
 MAIN_SRCS = main.cpp
+MAIN_HEADERS = KalmanFilter.hpp fsm.hpp
 AHRS_SRCS = Adafruit_AHRS/src/Adafruit_AHRS_Madgwick.cpp Adafruit_AHRS/src/Adafruit_AHRS_Mahony.cpp
 
 # Object files
@@ -39,7 +40,7 @@ implot/%.o: implot/%.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 # Main object
-%.o: %.cpp
+%.o: %.cpp $(MAIN_HEADERS)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 # Adafruit AHRS objects

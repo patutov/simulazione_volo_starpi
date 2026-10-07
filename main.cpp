@@ -182,18 +182,20 @@ int main(int argc, char** argv){
     int selected_port_idx = 0;
     auto last_port_refresh_time = std::chrono::steady_clock::now();
 
-
     orientation.begin(100);
-    altitude.setG(9.80665);
+    altitude.setG(1.0);
 
     std::vector<float> altitude_filtered_data;
     std::vector<float> delta_data;
+    std::vector<float> vspeed_data;
     std::vector<std::pair<float, std::string>> state_changes;
     std::vector<std::pair<float, std::string>> fault_changes;
     RocketState last_rocket_state = RS_IDLE;
     float P0 = 0.0f;
     bool imu_healthy = true;
     bool baro_healthy = true;
+
+    // TODO: init orientation filter with first value of quaternions from orientationInfo.csv
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
@@ -229,7 +231,7 @@ int main(int argc, char** argv){
                             }
                             ss_out << value_imu << ",";
                         }
-                    }//
+                    }
 
                     float baro_pressure = 0.0f;
                     float baro_temp = 0.0f;
@@ -264,117 +266,49 @@ int main(int argc, char** argv){
 
                     ts_data.push_back(current_ts);
                     alt_data.push_back(alt_vega);
-                    acc_data.push_back(acc_filtered);
+                    acc_data.push_back(acc_filtered/9.81f);
+
 
                     // MAPPING THE AXES:
-                    // The rocket's UP axis is -Y (Ay is -9.90 on the pad, -86 during launch)
-                    // Adafruit_AHRS expects gravity on +Z (Z is DOWN). Wait, no, Adafruit_AHRS expects +1g on +Z when upright!
-                    // So we must map the rocket's -Y (which is +9.9) to +Z.
-                    // To keep it right-handed: X' = X, Y' = Z, Z' = -Y
-                    float ax = imu_values[0];
-                    float ay = imu_values[2];
-                    float az = -imu_values[1];
+                    // Acceleration in G
+                    float ax =  imu_values[0] / 9.81f;
+                    float ay =  imu_values[2] / 9.81f;
+                    float az =  imu_values[1] / 9.81f;
+                    // rotation in DPS
+                    float gx =  imu_values[3];
+                    float gy =  imu_values[5];
+                    float gz =  imu_values[4];
 
-                    float gx = imu_values[3];
-                    float gy = imu_values[5];
-                    float gz = -imu_values[4];
+                    // HEALTH CHECK
+                    baro_healthy = is_baro_healthy_flight(baro_pressure, baro_temp);
+                    imu_healthy = is_imu_healthy_flight(ax*9.81f, ay*9.81f, az*9.81f, gx, gy, gz);
 
+                    // FILTER UPDATE
+                    float qw, qx, qy, qz;
                     orientation.updateIMU(gx, gy, gz, ax, ay, az);
+                    orientation.getQuaternion(&qw, &qx, &qy, &qz);
 
-                    // The tilt from vertical is the tilt from the filter's Z axis
-                    float attitude_rad = acos(cos(orientation.getPitchRadians())*cos(orientation.getRollRadians()));
-                    
-                    // Z' is mapped to -Y_sensor, which points UP. So az is positive upwards!
-                    float vertical_accel = 
-                        -ax * sin(orientation.getPitchRadians()) 
-                        +az * cos(orientation.getPitchRadians()) * cos(orientation.getRollRadians()) 
-                        -ay * sin(orientation.getRollRadians()) * cos(orientation.getPitchRadians());
+                    float cos_tilt = std::clamp(1 - 2*(qx*qx + qy*qy), -1.0f, 1.0f);
+                    float attitude_rad = acosf(cos_tilt); // same as acos(cos p * cos r) but NaN-safe
+                    float vertical_accel = 2*(qx*qz - qw*qy) * ax + 2*(qy*qz + qw*qx) * ay + (1 - 2*(qx*qx + qy*qy)) * az;
 
-                    // IN-FLIGHT / GROUND HEALTH CHECKS UNIFICATI
-                    bool was_imu_healthy = imu_healthy;
-                    bool was_baro_healthy = baro_healthy;
-
-                    if (current_ts <= -0.3f) {
-                        if (imu_healthy) imu_healthy = is_imu_healthy_ground(ax / 9.80665, ay / 9.80665, az / 9.80665, gx, gy, gz);
-                        if (baro_healthy) baro_healthy = is_baro_healthy_ground(baro_pressure, baro_temp);
-                    } else {
-                        if (imu_healthy) imu_healthy = is_imu_healthy_flight(ax / 9.80665, ay / 9.80665, az / 9.80665, gx, gy, gz);
-                        if (baro_healthy) baro_healthy = is_baro_healthy_flight(baro_pressure, baro_temp);
-                    }
-
-                    //test delle combinazioni di fallimento sensori
-                    // imu_healthy = true;
-                    // baro_healthy = false;
-
-                    // Se un sensore fallisce per la prima volta, salva la riga per il grafico
-                    if (was_imu_healthy && !imu_healthy) {
-                        fault_changes.push_back({current_ts, "IMU FAULT"});
-                    }
-                    if (was_baro_healthy && !baro_healthy) {
-                        fault_changes.push_back({current_ts, "BARO FAULT"});
-                    }
-                    
-                    if (imu_healthy) { 
-                        altitude.predict(
-                            vertical_accel,
-                            attitude_rad,
-                            false
-                        );
-                    }
+                    altitude.predict(vertical_accel, attitude_rad, false);
 
                     // init P0
                     if (P0 == 0.0f && baro_pressure > 0.0f) {
                         P0 = baro_pressure;
-                        ground_temperature_k = 15.0f + 273.15f; 
+                        baro_temp = 15.0f;
+                        ground_temperature_k = baro_temp + 273.15f;
                     }
 
-                    static float alt_baro_ema = 0.0f;
-                    // solo se il barometro sembra sano
-                    if (baro_healthy && P0 > 0.0f) {
+                    float alt_baro = compute_altitude(baro_pressure, P0);
+                    altitude.update(alt_baro);
 
-                        float alt_baro_new = compute_altitude(baro_pressure, P0);
-                        // potrebbe scartare il dato tramite il test S
-                        bool accepted = altitude.update(alt_baro_new);
-                    
+                    altitude_filtered_data.push_back(altitude.getState()[0]);
+                    delta_data.push_back(altitude.getState()[0] - alt_vega);
 
-                        // filtra esponenzialmente (da usare nel caso l'imu non sia sana)
-                        static constexpr float alpha = 0.1;
-                        if (alt_baro_ema == 0.0f) alt_baro_ema = alt_baro_new;
-                        alt_baro_ema = alpha * alt_baro_new + (1 - alpha) * alt_baro_ema;
-                        
-
-                        if (!accepted) {
-                            // più probabile che sia un problema di accelerometro...
-                        }
-                        
-                    }
-                    else {
-                        //todo: prova ad avviare gps
-                    }
-
-                    float filtered_alt; 
-                    
-
-                    
-                    //se barometro funziona e imu no -> non considero filtro di kalman per l'altitudine
-                    if (baro_healthy && P0 > 0.0f && !imu_healthy) filtered_alt = alt_baro_ema;
-                    else filtered_alt = altitude.getState()[0];
-                    
-                    altitude_filtered_data.push_back(filtered_alt);
-                    delta_data.push_back(filtered_alt - alt_vega);
-                    
-
-                    
-
-
-
-                    
-                    RocketState rocket_state = parachute_task(
-                        altitude.getState()[1], filtered_alt,  vertical_accel * cos(attitude_rad) / 9.80665, current_ts,
-                        imu_healthy, baro_healthy
-                    );
-                    
-                    
+                    RocketState rocket_state = parachute_task(altitude.getState()[1], altitude.getState()[0], altitude.getState()[2], current_ts);
+                    vspeed_data.push_back(altitude.getState()[1]);
 
                     if (ts_data.empty() || rocket_state != last_rocket_state) {
                         std::string state_name;
@@ -392,7 +326,6 @@ int main(int argc, char** argv){
                     }
 
                 }
-            
             }
         }
     }
@@ -492,7 +425,6 @@ int main(int argc, char** argv){
                 P0 = 0.0f; // Reset pressure reference
                 imu_healthy = true;
                 baro_healthy = true;
-                
 
                 file_imu.clear(); file_imu.seekg(0);
                 file_baro.clear(); file_baro.seekg(0);
@@ -521,7 +453,7 @@ int main(int argc, char** argv){
                     serial_fd = -1;
                 }
             }
-            
+
             ImGui::Spacing();
             ImGui::Text("IMU Status: ");
             ImGui::SameLine();
@@ -533,12 +465,12 @@ int main(int argc, char** argv){
             ImGui::SameLine();
             if (baro_healthy) ImGui::TextColored(ImVec4(0, 1, 0, 1), "HEALTHY");
             else ImGui::TextColored(ImVec4(1, 0, 0, 1), "FAULT");
-            
+
             ImGui::Separator();
 
             if (!ts_data.empty()) {
                 ImVec2 plot_size = ImVec2(-1, 300);
-                
+
                 auto drawStateLines = [&]() {
                     for (const auto& change : state_changes) {
                         double x[1] = { change.first };
@@ -547,7 +479,7 @@ int main(int argc, char** argv){
                     }
                     for (const auto& fault : fault_changes) {
                         double x[1] = { fault.first };
-                        
+
                         ImPlotSpec spec;
                         spec.LineColor = ImVec4(1, 0, 0, 1); // Rosso per i fault
 
@@ -568,6 +500,12 @@ int main(int argc, char** argv){
                     drawStateLines();
                     ImPlot::EndPlot();
                 }
+                if (ImPlot::BeginPlot("VSpeed StarFly", plot_size)) {
+                    ImPlot::SetupAxes("Time (s)", "Vertical Speed (m/s)", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
+                    ImPlot::PlotLine("filteredVspeed", ts_data.data(), vspeed_data.data(), ts_data.size());
+                    drawStateLines();
+                    ImPlot::EndPlot();
+                }
                 if (ImPlot::BeginPlot("Delta (Starfly - CSV)", plot_size)) {
                     ImPlot::SetupAxes("Time (s)", "Delta (m)", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
                     ImPlot::PlotLine("Delta", ts_data.data(), delta_data.data(), ts_data.size());
@@ -575,7 +513,7 @@ int main(int argc, char** argv){
                     ImPlot::EndPlot();
                 }
                 if (ImPlot::BeginPlot("Acceleration", plot_size)) {
-                    ImPlot::SetupAxes("Time (s)", "Acceleration (m/s^2)", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
+                    ImPlot::SetupAxes("Time (s)", "Acceleration (g)", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
                     ImPlot::PlotLine("filteredAcceleration", ts_data.data(), acc_data.data(), ts_data.size());
                     drawStateLines();
                     ImPlot::EndPlot();

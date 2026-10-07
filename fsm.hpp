@@ -5,7 +5,7 @@
 // togliere i commenti
 // sostituire millis() con time_s * 1000
 // sistemare parametri
-// reinserisci rocketstate dentro 
+// reinserisci rocketstate dentro
 //togli static
 
 enum RocketState {
@@ -17,7 +17,7 @@ enum RocketState {
 		RS_TOUCHDOWN, // On ground
 	};
 
-RocketState parachute_task(float _z_speed, float _z_alt, float _z_acc, float time_s, bool imu_healthy, bool baro_healthy)
+RocketState parachute_task(float _z_speed, float _z_alt, float _z_acc, float time_s)
 {
 	// self->last_wake = xTaskGetTickCount();
 
@@ -40,25 +40,25 @@ RocketState parachute_task(float _z_speed, float _z_alt, float _z_acc, float tim
 
 	#define PARACHUTE_TASK_HZ 10
 
-	#define Z_ACC_BOOST_THRESHOLD_G 2.5
+	#define Z_ACC_BOOST_THRESHOLD_G 3
 	#define Z_SPEED_BOOST_THRESHOLD_MS 25.0
-	#define Z_ALT_BOOST_THRESHOLD_M 100.0
+//	#define Z_ALT_BOOST_THRESHOLD_M 100.0
 
-	#define Z_ALT_COAST_THRESHOLD_M 750.0
-	#define MOTOR_BURNOUT_MS 4400
+//	#define Z_ALT_COAST_THRESHOLD_M 750.0
+//	#define MOTOR_BURNOUT_MS 4400
 
-	#define Z_SPEED_APOGEE_THRESHOLD_MS 0.5
-	#define Z_ALT_APOGEE_THRESHOLD_M 2950.0
-	#define MAX_TIME_TO_APOGEE_MS 28000
+	#define Z_SPEED_APOGEE_THRESHOLD_MS -0.01
+//	#define Z_ALT_APOGEE_THRESHOLD_M 2950.0
+//	#define MAX_TIME_TO_APOGEE_MS 28000
 
 	#define MIN_TIME_TO_1500M_MS 8540
 
-	#define Z_ALT_MAIN_DEPLOYMENT_M 450.0
-	#define MAX_TIME_TO_MAIN_DEPLOYMENT_MS 110000
+	#define Z_ALT_MAIN_DEPLOYMENT_M 400.0
+//	#define MAX_TIME_TO_MAIN_DEPLOYMENT_MS 110000
 
 	#define Z_ALT_TOUCHDOWN_M 10.0
-	#define Z_SPEED_STATIONARY_MS 0.1
-	#define MAX_TIME_TO_TOUCHDOWN 200000
+	#define Z_SPEED_STATIONARY_MS 0.0
+//	#define MAX_TIME_TO_TOUCHDOWN 200000
 
 	#define BOOST_DETECTION_SAMPLE_COUNT 10
 	#define BURNOUT_DETECTION_SAMPLE_COUNT 10
@@ -139,9 +139,7 @@ RocketState parachute_task(float _z_speed, float _z_alt, float _z_acc, float tim
 		switch (state) {
 		case RS_IDLE:
 			// Detect motor ignition
-			if ((imu_healthy ? (z_acc >= Z_ACC_BOOST_THRESHOLD_G &&
-				z_speed >= Z_SPEED_BOOST_THRESHOLD_MS) : false) ||
-				(baro_healthy ? (z_alt) >= Z_ALT_BOOST_THRESHOLD_M : false)) {
+			if (z_acc >= Z_ACC_BOOST_THRESHOLD_G && z_speed >= Z_SPEED_BOOST_THRESHOLD_MS) {
 				sample_count++;
 			} else {
 				sample_count = 0;
@@ -158,9 +156,7 @@ RocketState parachute_task(float _z_speed, float _z_alt, float _z_acc, float tim
 
 		case RS_BOOST:
 			// Detect motor burnout
-			if ((baro_healthy? z_alt >= Z_ALT_COAST_THRESHOLD_M : false) ||
-				(imu_healthy? z_acc < 0 : false) ||
-				ms_since_ignition >= MOTOR_BURNOUT_MS) {
+			if (z_acc < 0) {
 				sample_count++;
 			} else {
 				sample_count = 0;
@@ -180,10 +176,7 @@ RocketState parachute_task(float _z_speed, float _z_alt, float _z_acc, float tim
 			}
 
 			// Detect apogee
-			if ((imu_healthy ? z_speed <= Z_SPEED_APOGEE_THRESHOLD_MS : false) ||
-				// z_alt >= Z_ALT_APOGEE_THRESHOLD_M ||
-				z_alt < max_alt - 5.0f || 
-				ms_since_ignition >= MAX_TIME_TO_APOGEE_MS) {
+			if (z_speed <= Z_SPEED_APOGEE_THRESHOLD_MS) {
 				sample_count++;
 			} else {
 				sample_count = 0;
@@ -208,8 +201,7 @@ RocketState parachute_task(float _z_speed, float _z_alt, float _z_acc, float tim
 			// TODO: retract airbrakes
 
 			// Detect main parachute deployment
-			if (z_alt <= Z_ALT_MAIN_DEPLOYMENT_M ||
-				ms_since_ignition >= MAX_TIME_TO_MAIN_DEPLOYMENT_MS) {
+			if (z_alt <= Z_ALT_MAIN_DEPLOYMENT_M) {
 				sample_count++;
 			} else {
 				sample_count = 0;
@@ -230,10 +222,7 @@ RocketState parachute_task(float _z_speed, float _z_alt, float _z_acc, float tim
 
 		case RS_MAIN:
 			// Detect touchdown
-			if ((baro_healthy? z_alt <= Z_ALT_TOUCHDOWN_M : false) ||
-				(imu_healthy? z_speed <= Z_SPEED_STATIONARY_MS : false) ||
-				ms_since_ignition >= MAX_TIME_TO_TOUCHDOWN) 
-				{
+			if (z_alt <= Z_ALT_TOUCHDOWN_M || z_speed <= Z_SPEED_STATIONARY_MS) {
 				sample_count++;
 			} else {
 				sample_count = 0;
