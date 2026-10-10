@@ -16,7 +16,7 @@ bool is_imu_healthy_ground(float ax, float ay, float az, float gx, float gy, flo
 
 
     //controllo acc = 1g
-    float gravity = std::sqrt(ax *ax + ay*ay + az*az);
+    float gravity = std::sqrt(ax*ax + ay*ay + az*az);
     float gravity_threshold = 0.1f;
     bool gravity_ok = std::abs(gravity - 1.0f) < gravity_threshold;
     

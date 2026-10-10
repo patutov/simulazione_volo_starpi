@@ -139,6 +139,11 @@ public:
 		P = A*P*A.transpose() + Q;
 
 	}
+//grafico valore singolare massimo della P
+//valore della norma 2 di P
+//+R -> +P - 
+//fai grafico - overconfident/... - bound 3 sigma della P, dentro la norma dell'errore
+
 
 	// aggiornamento dello stato a partire da una misura di altitudine
 	// Ritorna true se la misura è stata accettata, false se scartata (NIS test)
@@ -152,8 +157,10 @@ public:
 		float innovation = z - (H * x).value(); // Estrae il float dalla matrice 1x1
 		float k = 25.0f; // Tolleranza (es. 5-sigma)
 		
+		// R troppo bassa, quindi la predizione è troppo "sicura" e scarta le misure che non sono in linea con essa		
+
 		if ((innovation * innovation) > k * S) {
-			// return false; // OUTLIER: Scarta la lettura, mantieni solo la predict()
+			return false; // OUTLIER: Scarta la lettura, mantieni solo la predict() //
 		}
 
 		x = x + K * innovation;

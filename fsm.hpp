@@ -231,7 +231,7 @@ RocketState parachute_task(float _z_speed, float _z_alt, float _z_acc, float tim
 		case RS_MAIN:
 			// Detect touchdown
 			if ((baro_healthy? z_alt <= Z_ALT_TOUCHDOWN_M : false) ||
-				(imu_healthy? z_speed <= Z_SPEED_STATIONARY_MS : false) ||
+				(imu_healthy? abs(z_speed) <= Z_SPEED_STATIONARY_MS : false) ||
 				ms_since_ignition >= MAX_TIME_TO_TOUCHDOWN) 
 				{
 				sample_count++;

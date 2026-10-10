@@ -271,13 +271,54 @@ int main(int argc, char** argv){
                     // Adafruit_AHRS expects gravity on +Z (Z is DOWN). Wait, no, Adafruit_AHRS expects +1g on +Z when upright!
                     // So we must map the rocket's -Y (which is +9.9) to +Z.
                     // To keep it right-handed: X' = X, Y' = Z, Z' = -Y
-                    float ax = imu_values[0];
-                    float ay = imu_values[2];
-                    float az = -imu_values[1];
 
-                    float gx = imu_values[3];
-                    float gy = imu_values[5];
-                    float gz = -imu_values[4];
+                    static int x_index = 0, y_index = 1, z_index = 2, invert_z = 1;
+                    static bool axes_mapped = false;
+
+
+                    //SE È A TERRA 
+                    //in M/S!!!
+                    if (!axes_mapped && imu_healthy && current_ts < 0.3f) {
+                        for (int i = 0; i < 3 && !axes_mapped; ++i){
+                            if (imu_values[i] > 8.0f) { 
+                                z_index = i;
+
+                                //x e y successivi con riporto
+                                if (z_index != 2) {
+                                    x_index = (i + 1) % 3;
+                                    y_index = (i + 2) % 3;
+                                }
+                                axes_mapped = true;
+
+                            }
+                            else if (imu_values[i] < -8.0f) {
+                                z_index = i;
+                                invert_z = -1;
+
+                                //x e y successivi con riporto ma invertiti per mantenere determinante 1
+                                if (z_index != 2){
+                                    x_index = (i + 2) % 3;
+                                    y_index = (i + 1) % 3;
+                                }
+                                else {
+                                    x_index = 1;
+                                    y_index = 0;
+                                }
+                                axes_mapped = true;
+
+                            }    
+                        }
+
+                    }
+
+                    float ax = imu_values[x_index];
+                    float ay = imu_values[y_index];
+                    float az = imu_values[z_index] * invert_z;
+
+                    float gx = imu_values[x_index + 3];
+                    float gy = imu_values[y_index + 3];
+                    float gz = imu_values[z_index + 3] * invert_z;
+
 
                     orientation.updateIMU(gx, gy, gz, ax, ay, az);
 
@@ -303,8 +344,8 @@ int main(int argc, char** argv){
                     }
 
                     //test delle combinazioni di fallimento sensori
-                    // imu_healthy = true;
-                    // baro_healthy = false;
+                    imu_healthy = true;
+                    baro_healthy = false;
 
                     // Se un sensore fallisce per la prima volta, salva la riga per il grafico
                     if (was_imu_healthy && !imu_healthy) {
@@ -325,6 +366,7 @@ int main(int argc, char** argv){
                     // init P0
                     if (P0 == 0.0f && baro_pressure > 0.0f) {
                         P0 = baro_pressure;
+                        baro_temp = 15.0f;
                         ground_temperature_k = 15.0f + 273.15f; 
                     }
 
