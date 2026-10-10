@@ -344,8 +344,8 @@ int main(int argc, char** argv){
                     }
 
                     //test delle combinazioni di fallimento sensori
-                    imu_healthy = true;
-                    baro_healthy = false;
+                    // imu_healthy = true;
+                    // baro_healthy = false;
 
                     // Se un sensore fallisce per la prima volta, salva la riga per il grafico
                     if (was_imu_healthy && !imu_healthy) {
