@@ -281,7 +281,7 @@ int main(int argc, char** argv){
 
                     // HEALTH CHECK
                     baro_healthy = is_baro_healthy_flight(baro_pressure, baro_temp);
-                    imu_healthy = is_imu_healthy_flight(ax*9.81f, ay*9.81f, az*9.81f, gx, gy, gz);
+                    imu_healthy = is_imu_healthy_flight(ax, ay, az, gx, gy, gz);
 
                     // FILTER UPDATE
                     float qw, qx, qy, qz;

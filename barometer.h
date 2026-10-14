@@ -24,9 +24,14 @@ float ground_temperature_k = 0.0;
 float compute_altitude(float air_pressure, float ground_pressure)
 {
 	// FIXME: Lb and M change with weather conditions
+//	const float Lb = -0.0065; // standard temperature lapse rate [K/m]
+//	const float M = 0.0289644; // Molar mass of air [kg/mol]
+//	const float R = 8.31432;  // Universal gas constant [N*m/mol*K]
+//	const float g0 = 9.80665; // Gravitational constant [m/s^2]
+
 	const float Lb = -0.0065; // standard temperature lapse rate [K/m]
 	const float M = 0.0289644; // Molar mass of air [kg/mol]
-	const float R = 8.31432;  // Universal gas constant [N*m/mol*K]
+	const float R = 8.31446;  // Universal gas constant [N*m/mol*K]
 	const float g0 = 9.80665; // Gravitational constant [m/s^2]
 
 	float x = ground_temperature_k / Lb;
@@ -35,4 +40,3 @@ float compute_altitude(float air_pressure, float ground_pressure)
 
 	return x*(pow(p, e) - 1);
 }
-

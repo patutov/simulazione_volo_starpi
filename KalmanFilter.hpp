@@ -20,6 +20,7 @@ private:
 	float R;        // Covarianza del rumore di misura
 
 	//====== VARIANZA DEL RUMORE DI PROCESSO ======
+#if 1
 	const float sigma_boost     = 7.0; // Boost fase
 	const float sigma_coast     = 7.0; // Coast fase
 	const float sigma_airbrakes = 7.0; // Airbrakes fase
@@ -27,22 +28,10 @@ private:
 
 	//====== VARIANZA DEL RUMORE DI MISURA DEL BAROMETRO ======
 	const float sigma_bar_launch   = 1.5; // Launch fase
-	const float sigma_bar_boost    = 1.5; // Boost fase 250-500
+	const float sigma_bar_boost    = 5.0; // Boost fase 250-500
 	const float sigma_bar_coast    = 1.5; // Coast fase
 	const float sigma_bar_airbrake = 1.5; // Airbrakes fase
 	const float sigma_bar_freefall = 1.5; // Free fall fase
-
-	/* Un'alternativa sarebbe questa:
-	const float sigma_boost = 300.0;      // Boost fase
-	const float sigma_coast = 6.0;        // Coast fase
-	const float sigma_airbrakes = 100.0;  // Airbrakes fase
-	const float sigma_freefall = 10000.0; // Free fall fase
-
-	const float sigma_bar_launch = 1.0;    // Launch fase
-	const float sigma_bar_boost = 3500.0;  // Boost fase
-	const float sigma_bar_coast = 1.0;     // Coast fase
-	const float sigma_bar_highdrag = 20.0; // Airbrakes fase
-	const float sigma_bar_freefall = 3.0;  // Free fall fase*/
 
 	const float dt = 0.01;                 // Tempo di campionamento, in secondi
 	float g;    // Accelerazione gravitazionale
