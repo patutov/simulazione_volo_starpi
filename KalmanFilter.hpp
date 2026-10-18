@@ -159,9 +159,9 @@ public:
 		
 		// R troppo bassa, quindi la predizione è troppo "sicura" e scarta le misure che non sono in linea con essa		
 
-		if ((innovation * innovation) > k * S) {
-			return false; // OUTLIER: Scarta la lettura, mantieni solo la predict() //
-		}
+		// if ((innovation * innovation) > k * S) {
+		// 	return false; // OUTLIER: Scarta la lettura, mantieni solo la predict() //
+		// }
 
 		x = x + K * innovation;
 		

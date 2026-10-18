@@ -25,12 +25,16 @@
 #include "fsm.hpp"
 #include "sensor_health.hpp"
 
+#include "airbrake.hpp"
+
 // State filter for orientation estimation, used in the IMU task
 Adafruit_Mahony orientation;
 
 // Altitude and veritcal velocity state filter, used to sense when to deploy
 // the parachute
 KalmanFilter altitude;
+float ground_alt;
+float current_ts = 0.0f;
 
 
 std::filesystem::path get_current_dir() {
@@ -172,7 +176,11 @@ int main(int argc, char** argv){
     std::vector<float> ts_data;
     std::vector<float> alt_data;
     std::vector<float> acc_data;
-    float current_ts = 0.0f;
+    std::vector<float> theta_pid_data;
+    std::vector<float> predicted_apogee_data;
+    std::vector<float> alt_real_asl_data;
+    static AirBrake petali;
+    current_ts = 0.0f;
 
     auto last_time = std::chrono::steady_clock::now();
     bool is_started = false;
@@ -366,15 +374,18 @@ int main(int argc, char** argv){
                     // init P0
                     if (P0 == 0.0f && baro_pressure > 0.0f) {
                         P0 = baro_pressure;
-                        baro_temp = 15.0f;
-                        ground_temperature_k = 15.0f + 273.15f; 
+                        // P0 = 101250.0f;
+                        // baro_temp = 15.0f + 273.15f;
+                        // ground_temperature_k = 15.0f + 273.15f;
+                        ground_temperature_k = baro_temp + 273.15f;
+                        ground_alt = compute_altitude_asl(baro_pressure);
                     }
 
                     static float alt_baro_ema = 0.0f;
                     // solo se il barometro sembra sano
                     if (baro_healthy && P0 > 0.0f) {
 
-                        float alt_baro_new = compute_altitude(baro_pressure, P0);
+                        float alt_baro_new = compute_altitude_asl(baro_pressure) - ground_alt;
                         // potrebbe scartare il dato tramite il test S
                         bool accepted = altitude.update(alt_baro_new);
                     
@@ -404,19 +415,25 @@ int main(int argc, char** argv){
                     
                     altitude_filtered_data.push_back(filtered_alt);
                     delta_data.push_back(filtered_alt - alt_vega);
-                    
-
-                    
-
-
-
-                    
                     RocketState rocket_state = parachute_task(
                         altitude.getState()[1], filtered_alt,  vertical_accel * cos(attitude_rad) / 9.80665, current_ts,
                         imu_healthy, baro_healthy
                     );
+
+                    float theta_pid = 0.0f;
+                    float predicted_apogee = 0.0f;
+                    if (rocket_state == RS_COAST) {
+                        predicted_apogee = petali.predict_apogee(filtered_alt, altitude.getState()[1], attitude_rad, baro_pressure);
+                        if (filtered_alt > 1500.0f) {
+                            theta_pid = petali.theta_update(filtered_alt, altitude.getState()[1], attitude_rad, baro_pressure);
+                            predicted_apogee = petali.get_predicted_apogee();
+                        }
+                    }
+                    theta_pid_data.push_back(theta_pid);
+                    predicted_apogee_data.push_back(predicted_apogee);
                     
-                    
+                    float alt_real_asl = petali.get_altitude_asl(baro_pressure);
+                    alt_real_asl_data.push_back(alt_real_asl);
 
                     if (ts_data.empty() || rocket_state != last_rocket_state) {
                         std::string state_name;
@@ -505,6 +522,7 @@ int main(int argc, char** argv){
                 }
 
                 is_started = true;
+                std::cout << "Target Altitude (ASL): " << petali.get_target_alt_asl() << " m\n";
                 last_time = std::chrono::steady_clock::now(); // Reset timing
             }
         } else {
@@ -527,6 +545,10 @@ int main(int argc, char** argv){
                 acc_data.clear();
                 altitude_filtered_data.clear(); // FIX: Clear this array so it doesn't cause out-of-bounds segfaults
                 delta_data.clear();
+                theta_pid_data.clear();
+                predicted_apogee_data.clear();
+                alt_real_asl_data.clear();
+                petali.reset();
                 state_changes.clear();
                 fault_changes.clear();
                 last_rocket_state = RS_IDLE;
@@ -575,6 +597,11 @@ int main(int argc, char** argv){
             ImGui::SameLine();
             if (baro_healthy) ImGui::TextColored(ImVec4(0, 1, 0, 1), "HEALTHY");
             else ImGui::TextColored(ImVec4(1, 0, 0, 1), "FAULT");
+
+            ImGui::SameLine(480);
+            ImGui::Text("Target Alt ASL: ");
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "%.2f m", petali.get_target_alt_asl());
             
             ImGui::Separator();
 
@@ -616,9 +643,37 @@ int main(int argc, char** argv){
                     drawStateLines();
                     ImPlot::EndPlot();
                 }
+                /*
                 if (ImPlot::BeginPlot("Acceleration", plot_size)) {
                     ImPlot::SetupAxes("Time (s)", "Acceleration (m/s^2)", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
                     ImPlot::PlotLine("filteredAcceleration", ts_data.data(), acc_data.data(), ts_data.size());
+                    drawStateLines();
+                    ImPlot::EndPlot();
+                }
+                */
+                if (ImPlot::BeginPlot("Theta PID", plot_size)) {
+                    ImPlot::SetupAxes("Time (s)", "Theta PID (rad)", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
+                    ImPlot::PlotLine("theta_pid", ts_data.data(), theta_pid_data.data(), ts_data.size());
+                    drawStateLines();
+                    ImPlot::EndPlot();
+                }
+                if (ImPlot::BeginPlot("Predicted Apogee", plot_size)) {
+                    ImPlot::SetupAxes("Time (s)", "Predicted Apogee (m)", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
+                    ImPlot::PlotLine("predicted_apogee", ts_data.data(), predicted_apogee_data.data(), ts_data.size());
+                    drawStateLines();
+                    ImPlot::EndPlot();
+                }
+                if (ImPlot::BeginPlot("Altitude ASL (AirBrake Real)", plot_size)) {
+                    ImPlot::SetupAxes("Time (s)", "Altitude ASL (m)", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
+                    ImPlot::PlotLine("get_altitude_asl", ts_data.data(), alt_real_asl_data.data(), ts_data.size());
+
+                    double target_y[1] = { petali.get_target_alt_asl() };
+                    ImPlotSpec target_spec;
+                    target_spec.LineColor = ImVec4(1.0f, 0.8f, 0.0f, 1.0f);
+                    target_spec.Flags = ImPlotInfLinesFlags_Horizontal;
+                    ImPlot::PlotInfLines("Target Altitude ASL", target_y, 1, target_spec);
+                    ImPlot::Annotation(ts_data.front(), target_y[0], ImVec4(1.0f, 0.8f, 0.0f, 1.0f), ImVec2(5, -10), false, "Target: %.1f m", target_y[0]);
+
                     drawStateLines();
                     ImPlot::EndPlot();
                 }
